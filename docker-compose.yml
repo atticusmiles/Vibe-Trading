@@ -1,17 +1,21 @@
 services:
   vibe-trading:
     build: .
+    image: ghcr.io/hkuds/vibe-trading:${TAG:-develop}
     ports:
       - "127.0.0.1:8899:8899"
+    environment:
+      - DATA_DIR=/data
+      - VIBE_TRADING_TRUST_DOCKER_LOOPBACK=1
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - JWT_SECRET=${JWT_SECRET:-}
     env_file:
       - agent/.env
-    environment:
-      - VIBE_TRADING_TRUST_DOCKER_LOOPBACK=1
     volumes:
-      - vibe-runs:/app/agent/runs
-      - vibe-sessions:/app/agent/sessions
+      - vibe-data:/data
     restart: unless-stopped
 
+  # Development frontend (only used with: docker compose --profile frontend up)
   frontend:
     image: node:20
     working_dir: /app
@@ -29,5 +33,4 @@ services:
         condition: service_started
 
 volumes:
-  vibe-runs:
-  vibe-sessions:
+  vibe-data:

@@ -14,6 +14,8 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
+from src.core.config import get_fonts_dir
+
 logger = logging.getLogger(__name__)
 
 _NOTO_URL = (
@@ -26,9 +28,7 @@ _FALLBACK_FAMILY = "DejaVu Sans"
 
 def fonts_dir() -> Path:
     """Return the Shadow Account fonts cache dir (auto-created)."""
-    d = Path.home() / ".vibe-trading" / "fonts"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return get_fonts_dir()
 
 
 def _system_cjk_candidates() -> list[Path]:

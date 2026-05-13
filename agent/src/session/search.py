@@ -18,9 +18,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from src.core.config import get_session_db_path
+
 logger = logging.getLogger(__name__)
 
-_DB_PATH = Path.home() / ".vibe-trading" / "sessions.db"
+_DB_PATH = get_session_db_path()
 
 
 @dataclass(frozen=True)

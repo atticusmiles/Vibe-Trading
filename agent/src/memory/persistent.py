@@ -15,9 +15,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.agent.frontmatter import parse_frontmatter as _parse_frontmatter
+from src.core.config import get_memory_dir
 from typing import List, Optional
 
-MEMORY_BASE = Path.home() / ".vibe-trading" / "memory"
+MEMORY_BASE = get_memory_dir()
 MAX_INDEX_LINES = 200
 MAX_ENTRY_CHARS = 8000
 MAX_RESULTS = 5

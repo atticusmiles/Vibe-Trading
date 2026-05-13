@@ -338,8 +338,9 @@ def run_swarm(preset_name: str, variables: dict[str, str]) -> str:
     from src.swarm.runtime import SwarmRuntime
     from src.swarm.store import SwarmStore
     from src.swarm.models import RunStatus
+    from src.core.config import get_swarm_dir
 
-    swarm_dir = AGENT_DIR / ".swarm" / "runs"
+    swarm_dir = get_swarm_dir()
     store = SwarmStore(base_dir=swarm_dir)
     runtime = SwarmRuntime(store=store)
 
@@ -457,8 +458,8 @@ def get_market_data(
 # ---------------------------------------------------------------------------
 
 def _get_swarm_store():
-    swarm_dir = AGENT_DIR / ".swarm" / "runs"
-    swarm_dir.mkdir(parents=True, exist_ok=True)
+    from src.core.config import get_swarm_dir
+    swarm_dir = get_swarm_dir()
     from src.swarm.store import SwarmStore
     return SwarmStore(base_dir=swarm_dir)
 
