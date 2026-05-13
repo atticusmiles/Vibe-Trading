@@ -37,21 +37,21 @@ jobs:
       - name: Copy docker-compose.yml to server
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_SSH_USER || 'deploy' }}
-          key: ${{ secrets.PROD_SSH_KEY }}
+          host: ${{ vars.HOST }}
+          username: ${{ vars.SSH_USER || 'deploy' }}
+          password: ${{ secrets.SSH_PASSWORD }}
           source: "docker-compose.yml"
-          target: ${{ secrets.PROD_DEPLOY_PATH || '/opt/vibe-trading' }}
+          target: ${{ vars.DEPLOY_PATH || '/opt/vibe-trading' }}
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_SSH_USER || 'deploy' }}
-          key: ${{ secrets.PROD_SSH_KEY }}
+          host: ${{ vars.HOST }}
+          username: ${{ vars.SSH_USER || 'deploy' }}
+          password: ${{ secrets.SSH_PASSWORD }}
           envs: ENV_LANGCHAIN_PROVIDER,ENV_LANGCHAIN_MODEL_NAME,ENV_OPENROUTER_API_KEY,ENV_OPENROUTER_BASE_URL,ENV_OPENAI_API_KEY,ENV_OPENAI_BASE_URL,ENV_DEEPSEEK_API_KEY,ENV_DEEPSEEK_BASE_URL,ENV_GEMINI_API_KEY,ENV_GEMINI_BASE_URL,ENV_TUSHARE_TOKEN,ENV_ENCRYPTION_KEY,ENV_JWT_SECRET,ENV_API_AUTH_KEY
           script: |
-            cd ${{ secrets.PROD_DEPLOY_PATH || '/opt/vibe-trading' }}
+            cd ${{ vars.DEPLOY_PATH || '/opt/vibe-trading' }}
             mkdir -p agent
             cat > agent/.env <<'ENVEOF'
             LANGCHAIN_PROVIDER=${ENV_LANGCHAIN_PROVIDER}
@@ -73,16 +73,16 @@ jobs:
             docker compose pull
             docker compose up -d --force-recreate
         env:
-          ENV_LANGCHAIN_PROVIDER: ${{ secrets.LANGCHAIN_PROVIDER }}
-          ENV_LANGCHAIN_MODEL_NAME: ${{ secrets.LANGCHAIN_MODEL_NAME }}
+          ENV_LANGCHAIN_PROVIDER: ${{ vars.LANGCHAIN_PROVIDER }}
+          ENV_LANGCHAIN_MODEL_NAME: ${{ vars.LANGCHAIN_MODEL_NAME }}
           ENV_OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          ENV_OPENROUTER_BASE_URL: ${{ secrets.OPENROUTER_BASE_URL }}
+          ENV_OPENROUTER_BASE_URL: ${{ vars.OPENROUTER_BASE_URL }}
           ENV_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ENV_OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          ENV_OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
           ENV_DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          ENV_DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          ENV_DEEPSEEK_BASE_URL: ${{ vars.DEEPSEEK_BASE_URL }}
           ENV_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ENV_GEMINI_BASE_URL: ${{ secrets.GEMINI_BASE_URL }}
+          ENV_GEMINI_BASE_URL: ${{ vars.GEMINI_BASE_URL }}
           ENV_TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
           ENV_ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
           ENV_JWT_SECRET: ${{ secrets.JWT_SECRET }}
@@ -91,7 +91,7 @@ jobs:
       - name: Health check
         run: |
           for i in $(seq 1 12); do
-            if curl -sf http://${{ secrets.PROD_HOST }}:8899/health > /dev/null 2>&1; then
+            if curl -sf http://${{ vars.HOST }}:8899/health > /dev/null 2>&1; then
               echo "Health check passed"
               exit 0
             fi
