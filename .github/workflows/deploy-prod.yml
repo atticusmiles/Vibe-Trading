@@ -34,17 +34,31 @@ jobs:
           }
           echo "Image verified: $IMAGE:${{ inputs.image_tag }}"
 
+      - name: Copy docker-compose.yml to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_SSH_USER || 'deploy' }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: ${{ secrets.PROD_DEPLOY_PATH || '/opt/vibe-trading' }}
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.PROD_HOST }}
           username: ${{ secrets.PROD_SSH_USER || 'deploy' }}
           key: ${{ secrets.PROD_SSH_KEY }}
+          envs: DEPLOY_ENV
           script: |
             cd ${{ secrets.PROD_DEPLOY_PATH || '/opt/vibe-trading' }}
+            mkdir -p agent
+            printf '%s' "$DEPLOY_ENV" > agent/.env
             export TAG=${{ inputs.image_tag }}
             docker compose pull
             docker compose up -d --force-recreate
+        env:
+          DEPLOY_ENV: ${{ secrets.DEPLOY_ENV }}
 
       - name: Health check
         run: |

@@ -131,17 +131,31 @@ jobs:
           echo "tag=release-${SHA_SHORT}" >> $GITHUB_OUTPUT
           echo "Deploying image tag: release-${SHA_SHORT}"
 
+      - name: Copy docker-compose.yml to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.UAT_HOST }}
+          username: ${{ secrets.UAT_SSH_USER || 'deploy' }}
+          key: ${{ secrets.UAT_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: ${{ secrets.UAT_DEPLOY_PATH || '/opt/vibe-trading' }}
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.UAT_HOST }}
           username: ${{ secrets.UAT_SSH_USER || 'deploy' }}
           key: ${{ secrets.UAT_SSH_KEY }}
+          envs: DEPLOY_ENV
           script: |
             cd ${{ secrets.UAT_DEPLOY_PATH || '/opt/vibe-trading' }}
+            mkdir -p agent
+            printf '%s' "$DEPLOY_ENV" > agent/.env
             export TAG=${{ steps.image.outputs.tag }}
             docker compose pull
             docker compose up -d --force-recreate
+        env:
+          DEPLOY_ENV: ${{ secrets.DEPLOY_ENV }}
 
       - name: Health check
         run: |
