@@ -9,7 +9,6 @@ agent/.env
 
 .claude/*
 !.claude/hooks.json
-CLAUDE.md
 .vscode/
 learn-claude-code-main/
 agent/sessions/
@@ -34,7 +33,9 @@ data/parquet/
 data/backup/
 
 # Internal docs (plans, specs)
-docs/
+docs/*
+!docs/specs/
+!docs/specs/**
 data/minutes/
 data/overnight*.log
 data/*.log
