@@ -88,9 +88,10 @@ else:
 
 AGENT_DIR = Path(__file__).resolve().parents[2]
 
-# .env search order: ~/.vibe-trading/.env → agent/.env → $CWD/.env
+# .env search order: $DATA_DIR/.env → agent/.env → $CWD/.env
+from src.core.config import get_data_dir
 _ENV_CANDIDATES = [
-    Path.home() / ".vibe-trading" / ".env",
+    get_data_dir() / ".env",
     AGENT_DIR / ".env",
     Path.cwd() / ".env",
 ]

@@ -1,0 +1,48 @@
+name: Deploy UAT
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [release]
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: UAT
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find release image tag
+        id: image
+        run: |
+          SHA_SHORT=$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)
+          echo "tag=release-${SHA_SHORT}" >> $GITHUB_OUTPUT
+          echo "Deploying image tag: release-${SHA_SHORT}"
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.UAT_HOST }}
+          username: ${{ secrets.UAT_SSH_USER || 'deploy' }}
+          key: ${{ secrets.UAT_SSH_KEY }}
+          script: |
+            cd ${{ secrets.UAT_DEPLOY_PATH || '/opt/vibe-trading' }}
+            export TAG=${{ steps.image.outputs.tag }}
+            docker compose pull
+            docker compose up -d --force-recreate
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 12); do
+            if curl -sf http://${{ secrets.UAT_HOST }}:8899/health > /dev/null 2>&1; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Waiting for health check... ($i/12)"
+            sleep 5
+          done
+          echo "ERROR: Health check failed after 60s"
+          exit 1

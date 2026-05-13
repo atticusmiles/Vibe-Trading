@@ -1,0 +1,67 @@
+name: Deploy Prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (e.g. v0.1.8)"
+        required: true
+        type: string
+      confirm:
+        description: "Confirm production deployment"
+        required: true
+        type: boolean
+
+jobs:
+  deploy:
+    if: ${{ inputs.confirm }}
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify image exists
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          docker manifest inspect "$IMAGE:${{ inputs.image_tag }}" > /dev/null 2>&1 || {
+            echo "ERROR: Image $IMAGE:${{ inputs.image_tag }} not found"
+            exit 1
+          }
+          echo "Image verified: $IMAGE:${{ inputs.image_tag }}"
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_SSH_USER || 'deploy' }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd ${{ secrets.PROD_DEPLOY_PATH || '/opt/vibe-trading' }}
+            export TAG=${{ inputs.image_tag }}
+            docker compose pull
+            docker compose up -d --force-recreate
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 12); do
+            if curl -sf http://${{ secrets.PROD_HOST }}:8899/health > /dev/null 2>&1; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Waiting for health check... ($i/12)"
+            sleep 5
+          done
+          echo "ERROR: Health check failed after 60s"
+          exit 1
+
+      - name: Create GitHub Release
+        if: startsWith(inputs.image_tag, 'v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ inputs.image_tag }}" \
+            --title "${{ inputs.image_tag }}" \
+            --notes "Automated release from image tag \`${{ inputs.image_tag }}\`."
+            --repo "${{ github.repository }}"

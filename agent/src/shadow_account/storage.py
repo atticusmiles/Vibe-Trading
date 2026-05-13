@@ -16,13 +16,12 @@ from pathlib import Path
 from typing import Any
 
 from src.shadow_account.models import ShadowProfile, ShadowRule
+from src.core.config import get_data_dir
 
 
 def _root() -> Path:
     """Return the Shadow Account root directory (auto-created)."""
-    root = Path.home() / ".vibe-trading"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    return get_data_dir()
 
 
 def profiles_dir() -> Path:

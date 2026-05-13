@@ -40,12 +40,14 @@ from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.syntax import Syntax
 from rich.table import Table
 
+from src.core.config import get_runs_dir, get_sessions_dir, get_swarm_dir, get_uploads_dir
+
 console = Console()
 AGENT_DIR = Path(__file__).resolve().parent
-RUNS_DIR = AGENT_DIR / "runs"
-SWARM_DIR = AGENT_DIR / ".swarm" / "runs"
-SESSIONS_DIR = AGENT_DIR / "sessions"
-UPLOADS_DIR = AGENT_DIR / "uploads"
+RUNS_DIR = get_runs_dir()
+SWARM_DIR = get_swarm_dir()
+SESSIONS_DIR = get_sessions_dir()
+UPLOADS_DIR = get_uploads_dir()
 
 EXIT_SUCCESS = 0
 EXIT_RUN_FAILED = 1

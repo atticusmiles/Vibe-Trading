@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from rich.console import Console
 
+from src.core.config import get_runs_dir, get_sessions_dir, get_uploads_dir, get_data_dir
 from src.ui_services import build_run_analysis, load_run_context
 
 # UTF-8 on Windows
@@ -35,9 +36,9 @@ for _s in ("stdout", "stderr"):
     if callable(_r):
         _r(encoding="utf-8", errors="replace")
 
-RUNS_DIR = Path(__file__).resolve().parent / "runs"
-SESSIONS_DIR = Path(__file__).resolve().parent / "sessions"
-UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
+RUNS_DIR = get_runs_dir()
+SESSIONS_DIR = get_sessions_dir()
+UPLOADS_DIR = get_uploads_dir()
 AGENT_DIR = Path(__file__).resolve().parent
 ENV_PATH = AGENT_DIR / ".env"
 ENV_EXAMPLE_PATH = AGENT_DIR / ".env.example"
@@ -1505,7 +1506,7 @@ async def get_shadow_report(shadow_id: str, format: str = "html"):
     if format not in ("html", "pdf"):
         raise HTTPException(status_code=400, detail="format must be html or pdf")
 
-    reports_dir = Path.home() / ".vibe-trading" / "shadow_reports"
+    reports_dir = get_data_dir() / "shadow_reports"
     path = reports_dir / f"{shadow_id}.{format}"
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Shadow report not found: {shadow_id}.{format}")
@@ -1589,7 +1590,8 @@ def _get_swarm_runtime():
         return _swarm_runtime
     from src.swarm.store import SwarmStore
     from src.swarm.runtime import SwarmRuntime
-    swarm_dir = Path(__file__).resolve().parent / ".swarm" / "runs"
+    from src.core.config import get_swarm_dir
+    swarm_dir = get_swarm_dir()
     store = SwarmStore(base_dir=swarm_dir)
     _swarm_runtime = SwarmRuntime(store=store)
     return _swarm_runtime

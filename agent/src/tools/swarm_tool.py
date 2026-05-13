@@ -623,9 +623,9 @@ class SwarmTool(BaseTool):
 
         from src.swarm.runtime import SwarmRuntime
         from src.swarm.store import SwarmStore
+        from src.core.config import get_swarm_dir
 
-        swarm_base_dir = Path(__file__).resolve().parents[2] / ".swarm" / "runs"
-        swarm_base_dir.mkdir(parents=True, exist_ok=True)
+        swarm_base_dir = get_swarm_dir()
         store = SwarmStore(base_dir=swarm_base_dir)
         runtime = SwarmRuntime(store=store, max_workers=int(os.getenv("SWARM_MAX_WORKERS", "4")))
 
