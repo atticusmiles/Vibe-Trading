@@ -88,7 +88,9 @@ def _load_skill_dir(dir_path: Path) -> Optional[Skill]:
     )
 
 
-USER_SKILLS_DIR = Path.home() / ".vibe-trading" / "skills" / "user"
+from src.core.config import get_skills_dir
+
+USER_SKILLS_DIR = get_skills_dir()
 
 
 class SkillsLoader:

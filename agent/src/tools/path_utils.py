@@ -77,25 +77,27 @@ def _default_file_roots() -> list[Path]:
     cwd = Path.cwd().resolve()
     home = Path.home().resolve()
     agent_root = _agent_root()
+    from src.core.config import get_data_dir
+    data_dir = get_data_dir()
     return [
+        data_dir / "uploads",
         agent_root / "uploads",
         agent_root / "runs",
         cwd / "uploads",
         cwd / "data",
-        home / ".vibe-trading" / "uploads",
-        home / ".vibe-trading" / "imports",
+        data_dir / "imports",
     ]
 
 
 def _default_run_roots() -> list[Path]:
     """Return default roots for generated backtest/tool run directories."""
     cwd = Path.cwd().resolve()
-    home = Path.home().resolve()
     agent_root = _agent_root()
+    from src.core.config import get_data_dir
     return [
         agent_root / "runs",
         cwd / "runs",
-        home / ".vibe-trading" / "shadow_runs",
+        get_data_dir() / "shadow_runs",
     ]
 
 

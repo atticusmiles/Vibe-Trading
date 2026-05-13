@@ -92,6 +92,7 @@ include = ["src*", "backtest*"]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "bump-my-version>=1.0.0",
 ]
 
 [tool.pytest.ini_options]
@@ -110,3 +111,19 @@ src = ["agent"]
 [tool.ruff.lint]
 select = ["E", "F", "W"]
 ignore = ["E501"]
+
+[tool.bumpversion]
+current_version = "0.1.7"
+commit = true
+tag = true
+tag_name = "v{new_version}"
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "frontend/package.json"
+search = '"version": "{current_version}"'
+replace = '"version": "{new_version}"'

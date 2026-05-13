@@ -26,10 +26,11 @@ from src.agent.memory import WorkspaceMemory
 from src.agent.tools import ToolRegistry
 from src.agent.trace import TraceWriter
 from src.core.state import RunStateStore
+from src.core.config import get_runs_dir
 from src.providers.chat import ChatLLM
 from src.tools.background_tools import get_background_manager
 
-RUNS_DIR = Path(__file__).resolve().parents[2] / "runs"
+RUNS_DIR = get_runs_dir()
 TOKEN_THRESHOLD = int(os.getenv("TOKEN_THRESHOLD", "40000"))
 KEEP_RECENT = 3
 TOOL_RESULT_LIMIT = 10_000
