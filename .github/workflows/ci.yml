@@ -12,9 +12,9 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/vibe-trading
 
 jobs:
-  lint-test:
+  lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -39,8 +39,28 @@ jobs:
           python -m py_compile src/tools/__init__.py
           python -m py_compile backtest/runner.py
 
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
       - name: Run tests
         run: pytest --ignore=agent/tests/e2e_backtest --tb=short -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -55,7 +75,7 @@ jobs:
           npm run build
 
   docker-build:
-    needs: lint-test
+    needs: [lint, test, frontend]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/release')
     permissions:
@@ -137,7 +157,7 @@ jobs:
           exit 1
 
   retag-release:
-    needs: lint-test
+    needs: [lint, test, frontend]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
