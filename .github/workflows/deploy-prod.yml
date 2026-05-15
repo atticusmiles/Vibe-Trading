@@ -22,9 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: Production
     timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-
       - name: Verify image exists
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
@@ -34,45 +34,30 @@ jobs:
           }
           echo "Image verified: $IMAGE:${{ inputs.image_tag }}"
 
-      - name: Build .env
-        id: dotenv
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          REPO="${{ github.repository }}"
-          # Auto-fetch all environment variables via API (requires PAT with env var read permission)
-          gh api "repos/$REPO/environments/Production/variables" \
-            --paginate --jq '.variables[] | "\(.name)=\(.value)"' \
-            | grep -v -E '^(HOST|SSH_USER|DEPLOY_PATH)=' \
-            > /tmp/.env
-          # Append secrets (API cannot read values)
-          {
-            echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"
-            echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}"
-            echo "DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}"
-            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
-            echo "ZAI_API_KEY=${{ secrets.ZAI_API_KEY }}"
-            echo "ZHIPU_API_KEY=${{ secrets.ZHIPU_API_KEY }}"
-            echo "TUSHARE_TOKEN=${{ secrets.TUSHARE_TOKEN }}"
-            echo "ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}"
-            echo "JWT_SECRET=${{ secrets.JWT_SECRET }}"
-            echo "API_AUTH_KEY=${{ secrets.API_AUTH_KEY }}"
-          } >> /tmp/.env
-          # Remove empty or TODO values
-          sed -i '/=$/d; /=TODO$/d' /tmp/.env
-          DOTENV_B64=$(base64 -w0 /tmp/.env)
-          echo "dotenv_b64=$DOTENV_B64" >> $GITHUB_OUTPUT
-          echo "--- .env keys ---"
-          sed 's/=.*/=***/' /tmp/.env
-
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GHCR_USER: ${{ github.actor }}
+          DEPLOY_TAG: ${{ inputs.image_tag }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          API_AUTH_KEY: ${{ secrets.API_AUTH_KEY }}
         with:
           host: ${{ vars.HOST }}
           username: ${{ vars.SSH_USER || 'deploy' }}
           password: ${{ secrets.SSH_PASSWORD }}
-          envs: DOTENV_B64,DEPLOY_TAG
+          envs: GH_PAT,GHCR_USER,DEPLOY_TAG,OPENROUTER_API_KEY,OPENAI_API_KEY,DEEPSEEK_API_KEY,GEMINI_API_KEY,ZAI_API_KEY,ZHIPU_API_KEY,TUSHARE_TOKEN,ENCRYPTION_KEY,JWT_SECRET,API_AUTH_KEY
           script: |
+            set -euo pipefail
+
             # Stop old deployments
             for old_dir in /opt/vibe-trading "$HOME/vibe-trading"; do
               if [ -f "$old_dir/docker-compose.yml" ]; then
@@ -85,6 +70,7 @@ jobs:
             sudo chown -R $(whoami) "$COMPOSE_DIR"
             cd "$COMPOSE_DIR"
 
+            # Write docker-compose.yml
             cat > docker-compose.yml <<'DCEOF'
             services:
               vibe-trading:
@@ -103,16 +89,46 @@ jobs:
               vibe-data:
             DCEOF
 
-            echo "$DOTENV_B64" | base64 -d > .env
-            echo "--- .env ---"
+            # Fetch environment variables from GitHub API
+            REPO_API="https://api.github.com/repos/atticusmiles/vibe-trading"
+            curl -sL \
+              -H "Authorization: token $GH_PAT" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "$REPO_API/environments/Production/variables?per_page=100" \
+              | python3 -c "
+            import sys, json
+            data = json.load(sys.stdin)
+            skip = {'HOST', 'SSH_USER', 'DEPLOY_PATH'}
+            for v in data.get('variables', []):
+                if v['name'] not in skip:
+                    print(f\"{v['name']}={v['value']}\")
+            " > .env
+
+            # Append secrets (API cannot read values, must be passed as env vars)
+            {
+              echo "OPENROUTER_API_KEY=$OPENROUTER_API_KEY"
+              echo "OPENAI_API_KEY=$OPENAI_API_KEY"
+              echo "DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY"
+              echo "GEMINI_API_KEY=$GEMINI_API_KEY"
+              echo "ZAI_API_KEY=$ZAI_API_KEY"
+              echo "ZHIPU_API_KEY=$ZHIPU_API_KEY"
+              echo "TUSHARE_TOKEN=$TUSHARE_TOKEN"
+              echo "ENCRYPTION_KEY=$ENCRYPTION_KEY"
+              echo "JWT_SECRET=$JWT_SECRET"
+              echo "API_AUTH_KEY=$API_AUTH_KEY"
+            } >> .env
+
+            # Remove empty or TODO values
+            sed -i '/=$/d; /=TODO$/d' .env
+            chmod 600 .env
+            echo "--- .env keys ---"
             sed 's/=.*/=***/' .env
 
+            # Login to GHCR, pull and restart
+            echo "$GH_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             export TAG=$DEPLOY_TAG
             docker compose pull
             docker compose up -d --force-recreate
-        env:
-          DOTENV_B64: ${{ steps.dotenv.outputs.dotenv_b64 }}
-          DEPLOY_TAG: ${{ inputs.image_tag }}
 
       - name: Health check
         uses: appleboy/ssh-action@v1
