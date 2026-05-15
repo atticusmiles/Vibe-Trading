@@ -131,13 +131,44 @@ jobs:
           echo "tag=release-${SHA_SHORT}" >> $GITHUB_OUTPUT
           echo "Deploying image tag: release-${SHA_SHORT}"
 
+      - name: Build .env
+        id: dotenv
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="${{ github.repository }}"
+          # Auto-fetch all environment variables via API
+          gh api "repos/$REPO/environments/UAT/variables" \
+            --paginate --jq '.variables[] | "\(.name)=\(.value)"' \
+            | grep -v -E '^(HOST|SSH_USER|DEPLOY_PATH)=' \
+            > /tmp/.env
+          # Append secrets (API cannot read values)
+          {
+            echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"
+            echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}"
+            echo "DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}"
+            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
+            echo "ZAI_API_KEY=${{ secrets.ZAI_API_KEY }}"
+            echo "ZHIPU_API_KEY=${{ secrets.ZHIPU_API_KEY }}"
+            echo "TUSHARE_TOKEN=${{ secrets.TUSHARE_TOKEN }}"
+            echo "ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}"
+            echo "JWT_SECRET=${{ secrets.JWT_SECRET }}"
+            echo "API_AUTH_KEY=${{ secrets.API_AUTH_KEY }}"
+          } >> /tmp/.env
+          # Remove empty or TODO values
+          sed -i '/=$/d; /=TODO$/d' /tmp/.env
+          DOTENV_B64=$(base64 -w0 /tmp/.env)
+          echo "dotenv_b64=$DOTENV_B64" >> $GITHUB_OUTPUT
+          echo "--- .env keys ---"
+          sed 's/=.*/=***/' /tmp/.env
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ vars.HOST }}
           username: ${{ vars.SSH_USER || 'deploy' }}
           password: ${{ secrets.SSH_PASSWORD }}
-          envs: ENV_LANGCHAIN_PROVIDER,ENV_LANGCHAIN_MODEL_NAME,ENV_OPENROUTER_API_KEY,ENV_OPENROUTER_BASE_URL,ENV_OPENAI_API_KEY,ENV_OPENAI_BASE_URL,ENV_DEEPSEEK_API_KEY,ENV_DEEPSEEK_BASE_URL,ENV_GEMINI_API_KEY,ENV_GEMINI_BASE_URL,ENV_ZAI_API_KEY,ENV_ZAI_BASE_URL,ENV_ZHIPU_API_KEY,ENV_ZHIPU_BASE_URL,ENV_TUSHARE_TOKEN,ENV_ENCRYPTION_KEY,ENV_JWT_SECRET,ENV_API_AUTH_KEY
+          envs: DOTENV_B64,DEPLOY_TAG
           script: |
             # Stop old deployments
             for old_dir in /opt/vibe-trading "$HOME/vibe-trading"; do
@@ -168,32 +199,16 @@ jobs:
               vibe-data:
             DCEOF
 
-            # Auto-generate .env from all ENV_ prefixed variables
-            env | grep '^ENV_' | sed 's/^ENV_//' > .env
-            cat .env
+            echo "$DOTENV_B64" | base64 -d > .env
+            echo "--- .env ---"
+            sed 's/=.*/=***/' .env
 
-            export TAG=${{ steps.image.outputs.tag }}
+            export TAG=$DEPLOY_TAG
             docker compose pull
             docker compose up -d --force-recreate
         env:
-          ENV_LANGCHAIN_PROVIDER: ${{ vars.LANGCHAIN_PROVIDER }}
-          ENV_LANGCHAIN_MODEL_NAME: ${{ vars.LANGCHAIN_MODEL_NAME }}
-          ENV_OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          ENV_OPENROUTER_BASE_URL: ${{ vars.OPENROUTER_BASE_URL }}
-          ENV_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ENV_OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
-          ENV_DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          ENV_DEEPSEEK_BASE_URL: ${{ vars.DEEPSEEK_BASE_URL }}
-          ENV_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ENV_GEMINI_BASE_URL: ${{ vars.GEMINI_BASE_URL }}
-          ENV_ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
-          ENV_ZAI_BASE_URL: ${{ vars.ZAI_BASE_URL }}
-          ENV_ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
-          ENV_ZHIPU_BASE_URL: ${{ vars.ZHIPU_BASE_URL }}
-          ENV_TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          ENV_ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
-          ENV_JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          ENV_API_AUTH_KEY: ${{ secrets.API_AUTH_KEY }}
+          DOTENV_B64: ${{ steps.dotenv.outputs.dotenv_b64 }}
+          DEPLOY_TAG: ${{ steps.image.outputs.tag }}
 
       - name: Health check
         uses: appleboy/ssh-action@v1
