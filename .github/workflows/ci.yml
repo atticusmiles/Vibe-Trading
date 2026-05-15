@@ -137,10 +137,10 @@ jobs:
       - name: Build .env
         id: dotenv
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           REPO="${{ github.repository }}"
-          # Auto-fetch all environment variables via API
+          # Auto-fetch all environment variables via API (requires PAT with env var read permission)
           gh api "repos/$REPO/environments/UAT/variables" \
             --paginate --jq '.variables[] | "\(.name)=\(.value)"' \
             | grep -v -E '^(HOST|SSH_USER|DEPLOY_PATH)=' \
