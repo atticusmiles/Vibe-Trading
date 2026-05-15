@@ -37,7 +37,7 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_PAT: ${{ secrets.GHCR_PAT }}
           GHCR_USER: ${{ github.actor }}
           DEPLOY_TAG: ${{ inputs.image_tag }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
