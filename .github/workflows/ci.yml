@@ -122,12 +122,16 @@ jobs:
     environment: UAT
     timeout-minutes: 10
     steps:
+      - name: Compute image tag
+        id: tag
+        run: echo "value=release-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         env:
           GH_PAT: ${{ secrets.GHCR_PAT }}
           GHCR_USER: ${{ github.actor }}
-          DEPLOY_TAG: release-${{ github.sha }}
+          DEPLOY_TAG: ${{ steps.tag.outputs.value }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
