@@ -34,15 +34,6 @@ jobs:
           }
           echo "Image verified: $IMAGE:${{ inputs.image_tag }}"
 
-      - name: Copy docker-compose.yml to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ vars.HOST }}
-          username: ${{ vars.SSH_USER || 'deploy' }}
-          password: ${{ secrets.SSH_PASSWORD }}
-          source: "docker-compose.yml"
-          target: ${{ vars.DEPLOY_PATH || '/opt/vibe-trading' }}
-
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -53,6 +44,23 @@ jobs:
           script: |
             cd ${{ vars.DEPLOY_PATH || '/opt/vibe-trading' }}
             mkdir -p agent
+            cat > docker-compose.yml <<'DCEOF'
+            services:
+              vibe-trading:
+                image: ghcr.io/atticusmiles/vibe-trading:${TAG:-develop}
+                ports:
+                  - "127.0.0.1:8899:8899"
+                environment:
+                  - DATA_DIR=/data
+                  - VIBE_TRADING_TRUST_DOCKER_LOOPBACK=1
+                env_file:
+                  - agent/.env
+                volumes:
+                  - vibe-data:/data
+                restart: unless-stopped
+            volumes:
+              vibe-data:
+            DCEOF
             cat > agent/.env <<'ENVEOF'
             LANGCHAIN_PROVIDER=${ENV_LANGCHAIN_PROVIDER}
             LANGCHAIN_MODEL_NAME=${ENV_LANGCHAIN_MODEL_NAME}
