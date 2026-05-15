@@ -140,7 +140,7 @@ jobs:
           envs: ENV_LANGCHAIN_PROVIDER,ENV_LANGCHAIN_MODEL_NAME,ENV_OPENROUTER_API_KEY,ENV_OPENROUTER_BASE_URL,ENV_OPENAI_API_KEY,ENV_OPENAI_BASE_URL,ENV_DEEPSEEK_API_KEY,ENV_DEEPSEEK_BASE_URL,ENV_GEMINI_API_KEY,ENV_GEMINI_BASE_URL,ENV_ZAI_API_KEY,ENV_ZAI_BASE_URL,ENV_ZHIPU_API_KEY,ENV_ZHIPU_BASE_URL,ENV_TUSHARE_TOKEN,ENV_ENCRYPTION_KEY,ENV_JWT_SECRET,ENV_API_AUTH_KEY
           script: |
             COMPOSE_DIR="/opt/1panel/docker/compose/vibetrading"
-            mkdir -p "$COMPOSE_DIR/agent"
+            mkdir -p "$COMPOSE_DIR"
             cd "$COMPOSE_DIR"
             cat > docker-compose.yml <<'DCEOF'
             services:
@@ -152,14 +152,14 @@ jobs:
                   - DATA_DIR=/data
                   - VIBE_TRADING_TRUST_DOCKER_LOOPBACK=1
                 env_file:
-                  - agent/.env
+                  - .env
                 volumes:
                   - vibe-data:/data
                 restart: unless-stopped
             volumes:
               vibe-data:
             DCEOF
-            cat > agent/.env <<'ENVEOF'
+            cat > .env <<'ENVEOF'
             LANGCHAIN_PROVIDER=${ENV_LANGCHAIN_PROVIDER}
             LANGCHAIN_MODEL_NAME=${ENV_LANGCHAIN_MODEL_NAME}
             OPENROUTER_API_KEY=${ENV_OPENROUTER_API_KEY}
