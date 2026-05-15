@@ -121,6 +121,9 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/release'
     environment: UAT
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
 
@@ -178,7 +181,8 @@ jobs:
             done
 
             COMPOSE_DIR="/opt/1panel/docker/compose/vibetrading"
-            mkdir -p "$COMPOSE_DIR"
+            sudo mkdir -p "$COMPOSE_DIR"
+            sudo chown -R $(whoami) "$COMPOSE_DIR"
             cd "$COMPOSE_DIR"
 
             cat > docker-compose.yml <<'DCEOF'
