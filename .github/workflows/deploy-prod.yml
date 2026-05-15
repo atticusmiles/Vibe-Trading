@@ -42,9 +42,17 @@ jobs:
           password: ${{ secrets.SSH_PASSWORD }}
           envs: ENV_LANGCHAIN_PROVIDER,ENV_LANGCHAIN_MODEL_NAME,ENV_OPENROUTER_API_KEY,ENV_OPENROUTER_BASE_URL,ENV_OPENAI_API_KEY,ENV_OPENAI_BASE_URL,ENV_DEEPSEEK_API_KEY,ENV_DEEPSEEK_BASE_URL,ENV_GEMINI_API_KEY,ENV_GEMINI_BASE_URL,ENV_ZAI_API_KEY,ENV_ZAI_BASE_URL,ENV_ZHIPU_API_KEY,ENV_ZHIPU_BASE_URL,ENV_TUSHARE_TOKEN,ENV_ENCRYPTION_KEY,ENV_JWT_SECRET,ENV_API_AUTH_KEY
           script: |
+            # Stop old deployments
+            for old_dir in /opt/vibe-trading "$HOME/vibe-trading"; do
+              if [ -f "$old_dir/docker-compose.yml" ]; then
+                cd "$old_dir" && docker compose down 2>/dev/null || true
+              fi
+            done
+
             COMPOSE_DIR="/opt/1panel/docker/compose/vibetrading"
             mkdir -p "$COMPOSE_DIR"
             cd "$COMPOSE_DIR"
+
             cat > docker-compose.yml <<'DCEOF'
             services:
               vibe-trading:
@@ -62,26 +70,11 @@ jobs:
             volumes:
               vibe-data:
             DCEOF
-            cat > .env <<'ENVEOF'
-            LANGCHAIN_PROVIDER=${ENV_LANGCHAIN_PROVIDER}
-            LANGCHAIN_MODEL_NAME=${ENV_LANGCHAIN_MODEL_NAME}
-            OPENROUTER_API_KEY=${ENV_OPENROUTER_API_KEY}
-            OPENROUTER_BASE_URL=${ENV_OPENROUTER_BASE_URL}
-            OPENAI_API_KEY=${ENV_OPENAI_API_KEY}
-            OPENAI_BASE_URL=${ENV_OPENAI_BASE_URL}
-            DEEPSEEK_API_KEY=${ENV_DEEPSEEK_API_KEY}
-            DEEPSEEK_BASE_URL=${ENV_DEEPSEEK_BASE_URL}
-            GEMINI_API_KEY=${ENV_GEMINI_API_KEY}
-            GEMINI_BASE_URL=${ENV_GEMINI_BASE_URL}
-            ZAI_API_KEY=${ENV_ZAI_API_KEY}
-            ZAI_BASE_URL=${ENV_ZAI_BASE_URL}
-            ZHIPU_API_KEY=${ENV_ZHIPU_API_KEY}
-            ZHIPU_BASE_URL=${ENV_ZHIPU_BASE_URL}
-            TUSHARE_TOKEN=${ENV_TUSHARE_TOKEN}
-            ENCRYPTION_KEY=${ENV_ENCRYPTION_KEY}
-            JWT_SECRET=${ENV_JWT_SECRET}
-            API_AUTH_KEY=${ENV_API_AUTH_KEY}
-            ENVEOF
+
+            # Auto-generate .env from all ENV_ prefixed variables
+            env | grep '^ENV_' | sed 's/^ENV_//' > .env
+            cat .env
+
             export TAG=${{ inputs.image_tag }}
             docker compose pull
             docker compose up -d --force-recreate
@@ -106,17 +99,22 @@ jobs:
           ENV_API_AUTH_KEY: ${{ secrets.API_AUTH_KEY }}
 
       - name: Health check
-        run: |
-          for i in $(seq 1 12); do
-            if curl -sf http://${{ vars.HOST }}:8899/health > /dev/null 2>&1; then
-              echo "Health check passed"
-              exit 0
-            fi
-            echo "Waiting for health check... ($i/12)"
-            sleep 5
-          done
-          echo "ERROR: Health check failed after 60s"
-          exit 1
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ vars.HOST }}
+          username: ${{ vars.SSH_USER || 'deploy' }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          script: |
+            for i in $(seq 1 12); do
+              if curl -sf http://127.0.0.1:8899/health > /dev/null 2>&1; then
+                echo "Health check passed"
+                exit 0
+              fi
+              echo "Waiting for health check... ($i/12)"
+              sleep 5
+            done
+            echo "ERROR: Health check failed after 60s"
+            exit 1
 
       - name: Create GitHub Release
         if: startsWith(inputs.image_tag, 'v')
