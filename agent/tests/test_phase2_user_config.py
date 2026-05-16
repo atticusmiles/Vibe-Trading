@@ -43,17 +43,17 @@ def _headers(token):
 class TestPreferences:
     def test_get_default_empty(self, authed):
         client, token = authed
-        res = client.get("/api/user/preferences", headers=_headers(token))
+        res = client.get("/api/user/settings/preferences", headers=_headers(token))
         assert res.status_code == 200
         assert res.json() == {}
 
     def test_put_and_get(self, authed):
         client, token = authed
         prefs = {"investment_style": "价值投资", "risk_appetite": "稳健型"}
-        res = client.put("/api/user/preferences", json=prefs, headers=_headers(token))
+        res = client.put("/api/user/settings/preferences", json=prefs, headers=_headers(token))
         assert res.status_code == 200
 
-        res = client.get("/api/user/preferences", headers=_headers(token))
+        res = client.get("/api/user/settings/preferences", headers=_headers(token))
         assert res.status_code == 200
         assert res.json()["investment_style"] == "价值投资"
 
@@ -61,18 +61,18 @@ class TestPreferences:
 class TestApiKeys:
     def test_get_default_empty(self, authed):
         client, token = authed
-        res = client.get("/api/user/api-keys", headers=_headers(token))
+        res = client.get("/api/user/settings/apikeys", headers=_headers(token))
         assert res.status_code == 200
         assert res.json() == {}
 
     def test_put_encrypts_key_and_get_decrypts(self, authed):
         client, token = authed
         keys = {"llm_provider": {"key": "sk-secret-key", "label": "OpenRouter"}}
-        res = client.put("/api/user/api-keys", json=keys, headers=_headers(token))
+        res = client.put("/api/user/settings/apikeys", json=keys, headers=_headers(token))
         assert res.status_code == 200
 
         # GET should return decrypted plaintext
-        res = client.get("/api/user/api-keys", headers=_headers(token))
+        res = client.get("/api/user/settings/apikeys", headers=_headers(token))
         assert res.status_code == 200
         data = res.json()
         assert data["llm_provider"]["key"] == "sk-secret-key"
@@ -82,30 +82,30 @@ class TestApiKeys:
         monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
         client, token = authed
         keys = {"llm_provider": {"key": "sk-secret"}}
-        res = client.put("/api/user/api-keys", json=keys, headers=_headers(token))
+        res = client.put("/api/user/settings/apikeys", json=keys, headers=_headers(token))
         assert res.status_code == 503
 
 
 class TestSettings:
     def test_get_default_empty(self, authed):
         client, token = authed
-        res = client.get("/api/user/settings", headers=_headers(token))
+        res = client.get("/api/user/settings/system", headers=_headers(token))
         assert res.status_code == 200
         assert res.json() == {}
 
     def test_put_encrypts_app_secret(self, authed):
         client, token = authed
         settings = {"news_archive_time": "08:00", "feishu": {"app_secret": "my-feishu-secret"}}
-        res = client.put("/api/user/settings", json=settings, headers=_headers(token))
+        res = client.put("/api/user/settings/system", json=settings, headers=_headers(token))
         assert res.status_code == 200
 
         # GET should return decrypted
-        res = client.get("/api/user/settings", headers=_headers(token))
+        res = client.get("/api/user/settings/system", headers=_headers(token))
         assert res.status_code == 200
         data = res.json()
         assert data["news_archive_time"] == "08:00"
         assert data["feishu"]["app_secret"] == "my-feishu-secret"
 
     def test_unauthenticated_returns_401(self, client):
-        res = client.get("/api/user/preferences")
+        res = client.get("/api/user/settings/preferences")
         assert res.status_code == 401

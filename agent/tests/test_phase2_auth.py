@@ -131,18 +131,18 @@ class TestDataIsolation:
 
         # User A sets preferences
         res = client.put(
-            "/api/user/preferences",
+            "/api/user/settings/preferences",
             json={"investment_style": "value"},
             headers={"Authorization": f"Bearer {token_a}"},
         )
         assert res.status_code == 200
 
         # User B should see empty preferences
-        res = client.get("/api/user/preferences", headers={"Authorization": f"Bearer {token_b}"})
+        res = client.get("/api/user/settings/preferences", headers={"Authorization": f"Bearer {token_b}"})
         assert res.status_code == 200
         assert res.json() == {}
 
         # User A should see their preferences
-        res = client.get("/api/user/preferences", headers={"Authorization": f"Bearer {token_a}"})
+        res = client.get("/api/user/settings/preferences", headers={"Authorization": f"Bearer {token_a}"})
         assert res.status_code == 200
         assert res.json()["investment_style"] == "value"
