@@ -32,10 +32,6 @@ data/.duckdb_tmp/
 data/parquet/
 data/backup/
 
-# Internal docs (plans, specs)
-docs/*
-!docs/specs/
-!docs/specs/**
 data/minutes/
 data/overnight*.log
 data/*.log
