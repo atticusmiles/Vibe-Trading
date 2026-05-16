@@ -17,26 +17,26 @@ CREATE TABLE users (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     username        TEXT UNIQUE NOT NULL,
     password_hash   TEXT NOT NULL,
-    api_keys        TEXT DEFAULT '{}',    -- JSON，仅密钥值加密，结构可读
+    api_keys        TEXT DEFAULT '{}',    -- JSON，敏感字段加密
     preferences     TEXT DEFAULT '{}',    -- JSON，投资偏好
-    settings        TEXT DEFAULT '{}',    -- JSON，系统设置
+    settings        TEXT DEFAULT '{}',    -- JSON，系统设置（敏感字段加密）
     created_at      TEXT DEFAULT (datetime('now')),
     updated_at      TEXT DEFAULT (datetime('now'))
 );
 ```
 
-**api_keys JSON 结构**：
+**api_keys JSON 结构**（存储格式，敏感字段已加密）：
 ```json
 {
     "llm_provider": {
-        "key": "enc:a3f1b2...",
+        "key": "enc:dGVzdA==:YWJjZA==:eHl6dw==",
         "label": "OpenRouter",
         "model": "anthropic/claude-sonnet-4-20250514",
         "base_url": "https://openrouter.ai/api/v1",
         "provider": "openrouter"
     },
     "tushare": {
-        "key": "enc:9c2d4e..."
+        "key": "enc:bm9uYw==:ZGVmZw==:aGloaQ=="
     },
     "searxng": {
         "base_url": "http://localhost:8080"
@@ -71,7 +71,7 @@ CREATE TABLE users (
     },
     "feishu": {
         "app_id": "",
-        "app_secret": "enc:...",
+        "app_secret": "enc:dGVzdA==:eW91cg==:dGhlbQ==",
         "push_channel": ""
     }
 }
@@ -84,50 +84,52 @@ CREATE TABLE users (
 ```
 POST   /auth/register
 请求：{"username": "xxx", "password": "xxx"}
-响应：{"id": 1, "username": "xxx", "created_at": "..."}
+成功：201 {"id": 1, "username": "xxx", "created_at": "..."}
+失败：409 {"detail": "Username already exists"}
 
 POST   /auth/login
 请求：{"username": "xxx", "password": "xxx"}
 响应：{"access_token": "xxx", "token_type": "bearer", "expires_in": 86400}
 
-POST   /auth/logout
-头部：Authorization: Bearer <token>
-响应：204 No Content
-
 GET    /auth/me
 头部：Authorization: Bearer <token>
 响应：{"id": 1, "username": "xxx", "preferences": {...}, "created_at": "..."}
+
+PUT    /auth/password
+头部：Authorization: Bearer <token>
+请求：{"old_password": "xxx", "new_password": "xxx"}
+成功：200 OK
+失败：400 {"detail": "Incorrect password"}
 ```
 
 ### 3.2 用户配置端点
 
 所有端点通过 JWT 中间件自动获取 user_id，不需要在 URL 或请求体中传递。
 
+**设计原则**：每个配置组（preferences、api-keys、settings）有独立的 GET/PUT 端点，PUT 为全量替换（不支持 PATCH 部分更新）。前端读取当前值 → 用户修改 → 提交完整 JSON 替换。
+
 ```
 GET    /api/user/preferences
 响应：{"investment_style": "价值投资", ...}
 
 PUT    /api/user/preferences
-请求：{"investment_style": "成长投资", "risk_appetite": "积极型", ...}
+请求：完整 JSON（全量替换）
 响应：200 OK
 
 GET    /api/user/api-keys
-响应：{"llm_provider": {"label": "OpenRouter", "key": "enc:***"}, ...}
-（密钥值脱敏，只显示后4位）
+响应：{"llm_provider": {"label": "OpenRouter", "key": "sk-xxx..."}, ...}
+（解密后返回明文，前端直接展示）
 
 PUT    /api/user/api-keys
-请求：{"llm_provider": {"key": "sk-xxx", "label": "OpenRouter", "model": "..."}}
-响应：200 OK
-（存储时自动加密 key 字段，其他字段明文）
-
-DELETE /api/user/api-keys/{key_type}
+请求：完整 JSON（全量替换，删除某类 key 直接不包含在 JSON 中），存储时自动加密 key 字段，其他字段明文
 响应：200 OK
 
 GET    /api/user/settings
 响应：{"news_archive_time": "08:00", ...}
+（settings 中敏感字段如 feishu.app_secret 同样解密后返回明文）
 
 PUT    /api/user/settings
-请求：{"news_archive_time": "09:00", "proposal_limits": {"trend": 5}}
+请求：完整 JSON（全量替换）
 响应：200 OK
 ```
 
@@ -136,26 +138,44 @@ PUT    /api/user/settings
 ### 4.1 JWT 认证
 
 - 登录成功后签发 JWT，包含 `sub`（user_id）和 `exp`（过期时间）
-- Token 有效期 24 小时
-- 中间件在每个请求前解析 Token，将 `user_id` 注入请求上下文
-- SSE 连接通过 `?token=` 查询参数传递 Token
+- **JWT_SECRET 格式**：任意字符串，建议 >= 32 字符随机值
+- Token 有效期 24 小时，过期后前端自动跳转登录页重新登录
+- 中间件解析 Token，校验签名和过期时间，将 `user_id` 注入请求上下文（无状态，不查数据库）
+- SSE 连接通过 `?token=` 查询参数传递 Token（复用现有 `require_event_stream_auth` 的模式）
 
-### 4.2 API Key 加密
+### 4.2 敏感字段加密
 
 - 使用 AES-256-GCM 加密，密钥从环境变量 `ENCRYPTION_KEY` 读取
-- 写入时：`api_keys` JSON 中 `"key"` 字段的值加密后存储为 `"enc:base64_ciphertext"`
-- 读取时：`GET /api/user/api-keys` 返回脱敏值（`"***abcd"`，显示后4位）
-- 运行时使用：Agent 执行时解密实际 key 值传给 LLM Provider
+- **ENCRYPTION_KEY 格式**：32 字节，以 hex 编码传入（64 字符）。启动时校验长度，不符合则报错退出
+- 加密规则：递归遍历 JSON 树，所有以 `"key"` 或 `"secret"` 或 `"app_secret"` 命名的字段值自动加密
+- 存储格式：`"enc:base64_nonce:base64_ciphertext:base64_tag"`（含 nonce 和 tag，无需单独存储）
+- 写入时：自动识别并加密敏感字段
+- 读取时：自动解密，返回明文（前端直接展示和编辑）
+- 运行时使用：Agent 执行时解密实际密钥值传给 LLM Provider
+- **启动检测**：服务启动时检查 `ENCRYPTION_KEY` 是否设置，未设置时 warn 日志提示；若用户尝试写入敏感字段但 key 缺失，返回 503 Service Unavailable
 
 ### 4.3 密码安全
 
-- 使用 bcrypt 哈希，work factor = 12
+- 使用 bcrypt 哈希，work factor = 12，salt 由 bcrypt 自动生成（无需单独处理）
 - 注册时校验用户名长度 3-32，密码长度 8-128
 
 ### 4.4 数据隔离
 
 - 所有业务查询强制 `WHERE user_id = ?`
 - 中间件层统一注入 user_id，业务代码不自行解析认证信息
+
+### 4.5 迁移策略
+
+- **一刀切**：本阶段上线后，移除现有的 `API_AUTH_KEY` 静态 Token 认证机制
+- 所有端点统一使用 JWT 鉴权（通过 `Depends(require_jwt_auth)` 替换现有的 `Depends(require_auth)`）
+- 前端移除 `apiAuth.ts` 中旧的静态 key 逻辑，改用 JWT Token
+- `API_AUTH_KEY` 环境变量标记为废弃，不再读取
+
+### 4.6 数据库配置
+
+- SQLite WAL 模式（`PRAGMA journal_mode=WAL`），busy timeout 5 秒
+- 数据库文件路径：`{DATA_DIR}/vibe.db`
+- 服务启动时在 FastAPI `lifespan` 中自动初始化建表和迁移
 
 ## 5. 前端设计
 
@@ -175,8 +195,9 @@ PUT    /api/user/settings
 └─────────────────────────────────┘
 ```
 
-- 登录成功后 Token 存入 localStorage，跳转到 Dashboard
+- 登录成功后 Token 存入 localStorage（复用现有 `apiAuth.ts` 的 `setApiAuthKey`），跳转到 Dashboard
 - 未登录访问其他页面自动跳转到 `/login`
+- 所有 API 请求通过现有 `api.ts` 的 `request()` 封装自动附带 `Authorization: Bearer <token>`（原生 fetch，不使用 Axios）
 
 ### 5.2 用户设置页面（`/settings`）
 
@@ -187,12 +208,12 @@ PUT    /api/user/settings
 ┌─────────────────────────────────────────┐
 │  LLM Provider                           │
 │  标签：[OpenRouter    ]                  │
-│  Key： [sk-****************abcd]         │  ← 脱敏显示，点击编辑
+│  Key： [sk-or-v1-xxxxx...abcd]          │  ← 明文显示
 │  模型：[anthropic/claude-sonnet-4-20250514]              │
 │  Base URL：[https://openrouter.ai/api/v1]│
 │                                         │
 │  tushare                                │
-│  Token：[****efgh]                       │
+│  Token：[a1b2c3d4efgh]                   │
 │                                         │
 │  searxng                                │
 │  地址：[http://localhost:8080]           │
@@ -218,7 +239,7 @@ PUT    /api/user/settings
 └─────────────────────────────────────────┘
 ```
 
-**系统设置 Tab**：
+**系统设置 Tab**（飞书配置区域在阶段 8 实现，本阶段不渲染）：
 ```
 ┌─────────────────────────────────────────┐
 │  新闻存档时间：[08:00]                   │
@@ -234,9 +255,11 @@ PUT    /api/user/settings
 ## 6. 验收标准
 
 - [ ] 可通过 API 注册新用户、登录获取 JWT
+- [ ] 注册重复用户名返回 409
 - [ ] 所有 /api/* 端点需要 Bearer Token 才能访问，无 Token 返回 401
 - [ ] 不同用户的 API Key / 偏好 / 设置完全隔离
-- [ ] API Key 存储加密，读取脱敏
+- [ ] 敏感字段（key/secret/app_secret）存储加密，读取返回明文
+- [ ] ENCRYPTION_KEY 缺失时写入敏感字段返回 503
 - [ ] 前端登录/注册流程完整可用
-- [ ] 前端设置页面可管理 API Key、偏好、系统设置
+- [ ] 前端设置页面可管理 API Key、偏好、系统设置（飞书配置区域在阶段 8 实现，本阶段不渲染）
 - [ ] Token 过期后前端自动跳转到登录页
