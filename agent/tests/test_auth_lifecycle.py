@@ -34,7 +34,7 @@ def _auth_header(token):
 
 
 class TestFullAuthLifecycle:
-    """Register → login → set preferences → set API keys → set system settings
+    """Register → login → set preferences → set system settings
     → verify all persisted → change password → login with new password → verify data intact."""
 
     def test_complete_lifecycle(self, client):
@@ -69,24 +69,7 @@ class TestFullAuthLifecycle:
         res = client.put("/api/user/settings/preferences", json=prefs, headers=headers)
         assert res.status_code == 200
 
-        # 5. Set API keys (with encryption)
-        api_keys = {
-            "llm_provider": {
-                "base_url": "https://api.example.com/v1",
-                "model": "gpt-4",
-                "key": "sk-e2e-secret-key-12345",
-            },
-            "generation": {
-                "temperature": 0.7,
-                "timeout_seconds": 120,
-                "max_retries": 3,
-            },
-            "tushare": {"key": "tushare-e2e-token"},
-        }
-        res = client.put("/api/user/settings/apikeys", json=api_keys, headers=headers)
-        assert res.status_code == 200
-
-        # 6. Set system settings (with encrypted app_secret)
+        # 5. Set system settings (with encrypted app_secret)
         settings = {
             "news_archive_time": "09:00",
             "sentinel_interval": 30,
@@ -96,7 +79,7 @@ class TestFullAuthLifecycle:
         res = client.put("/api/user/settings/system", json=settings, headers=headers)
         assert res.status_code == 200
 
-        # 7. Verify all data persisted correctly
+        # 6. Verify all data persisted correctly
         # Preferences
         res = client.get("/api/user/settings/preferences", headers=headers)
         assert res.status_code == 200
@@ -104,15 +87,6 @@ class TestFullAuthLifecycle:
         assert got_prefs["investment_style"] == "量化交易"
         assert got_prefs["focus_markets"] == ["A股", "美股"]
         assert got_prefs["stock_invest_total"] == 800000
-
-        # API keys (decrypted)
-        res = client.get("/api/user/settings/apikeys", headers=headers)
-        assert res.status_code == 200
-        got_keys = res.json()
-        assert got_keys["llm_provider"]["key"] == "sk-e2e-secret-key-12345"
-        assert got_keys["llm_provider"]["base_url"] == "https://api.example.com/v1"
-        assert got_keys["generation"]["temperature"] == 0.7
-        assert got_keys["tushare"]["key"] == "tushare-e2e-token"
 
         # System settings (decrypted)
         res = client.get("/api/user/settings/system", headers=headers)
@@ -123,7 +97,7 @@ class TestFullAuthLifecycle:
         assert got_settings["proposal_limits"]["trend"] == 5
         assert got_settings["feishu"]["app_secret"] == "feishu-secret"
 
-        # 8. Change password
+        # 7. Change password
         res = client.put(
             "/auth/password",
             json={"old_password": "OldPass123", "new_password": "NewPass456"},
@@ -131,26 +105,22 @@ class TestFullAuthLifecycle:
         )
         assert res.status_code == 200
 
-        # 9. Login with new password
+        # 8. Login with new password
         res = client.post("/auth/login", json={"username": "e2euser", "password": "NewPass456"})
         assert res.status_code == 200
         new_token = res.json()["access_token"]
         new_headers = _auth_header(new_token)
 
-        # 10. Verify data still intact after password change
+        # 9. Verify data still intact after password change
         res = client.get("/api/user/settings/preferences", headers=new_headers)
         assert res.status_code == 200
         assert res.json()["investment_style"] == "量化交易"
-
-        res = client.get("/api/user/settings/apikeys", headers=new_headers)
-        assert res.status_code == 200
-        assert res.json()["llm_provider"]["key"] == "sk-e2e-secret-key-12345"
 
         res = client.get("/api/user/settings/system", headers=new_headers)
         assert res.status_code == 200
         assert res.json()["feishu"]["app_secret"] == "feishu-secret"
 
-        # 11. Old password should no longer work
+        # 10. Old password should no longer work
         res = client.post("/auth/login", json={"username": "e2euser", "password": "OldPass123"})
         assert res.status_code == 401
 
@@ -196,7 +166,6 @@ class TestMultipleUsersIsolation:
 
         # Alice sets preferences
         client.put("/api/user/settings/preferences", json={"investment_style": "value", "capital_scale": "100万以上"}, headers=ha)
-        client.put("/api/user/settings/apikeys", json={"llm_provider": {"key": "alice-secret-key", "model": "gpt-4"}}, headers=ha)
         client.put("/api/user/settings/system", json={"sentinel_interval": 15, "feishu": {"app_secret": "alice-feishu"}}, headers=ha)
 
         # Bob sets different preferences
@@ -207,9 +176,6 @@ class TestMultipleUsersIsolation:
         assert res_a.json()["investment_style"] == "value"
         assert res_a.json()["capital_scale"] == "100万以上"
 
-        res_a_keys = client.get("/api/user/settings/apikeys", headers=ha)
-        assert res_a_keys.json()["llm_provider"]["key"] == "alice-secret-key"
-
         res_a_settings = client.get("/api/user/settings/system", headers=ha)
         assert res_a_settings.json()["sentinel_interval"] == 15
         assert res_a_settings.json()["feishu"]["app_secret"] == "alice-feishu"
@@ -218,9 +184,6 @@ class TestMultipleUsersIsolation:
         res_b = client.get("/api/user/settings/preferences", headers=hb)
         assert res_b.json()["investment_style"] == "成长投资"
         assert "capital_scale" not in res_b.json()
-
-        res_b_keys = client.get("/api/user/settings/apikeys", headers=hb)
-        assert res_b_keys.json() == {}
 
         res_b_settings = client.get("/api/user/settings/system", headers=hb)
         assert res_b_settings.json() == {}

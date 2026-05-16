@@ -46,8 +46,6 @@ users
 ├── id              INTEGER PK
 ├── username        TEXT UNIQUE NOT NULL
 ├── password_hash   TEXT NOT NULL
-├── api_keys        TEXT        -- JSON，各类型API Key（仅密钥值加密，结构可读）
-│   └── {"llm_provider": {"key":"enc:xxx","label":"OpenRouter","model":"xxx","base_url":"xxx"}, "tushare": {"key":"enc:xxx"}, ...}
 ├── preferences     TEXT        -- JSON，投资偏好（整体读写）
 │   └── {"investment_style":"价值投资", "risk_appetite":"稳健型", "focus_markets":[...], ...}
 ├── settings        TEXT        -- JSON，系统设置（整体读写）
@@ -224,15 +222,13 @@ GET    /auth/me                 当前用户信息
 
 ### 4.2 用户配置（新增）
 
-所有 `/api/user/*` 接口基于 Token 中的 `user_id` 自动定位当前用户，无需也不允许指定其他用户。
+所有 `/api/user/*` 接口基于 Token 中的 `user_id` 自动定位当前用户，无需也不允许指定其他用户。LLM Provider 和数据源配置通过全局环境变量（`.env`）管理，不存入数据库。
 
 ```
-GET    /api/user/preferences           获取投资偏好
-PUT    /api/user/preferences           更新投资偏好（整体替换）
-GET    /api/user/api-keys              获取全部API Key（密钥值脱敏）
-PUT    /api/user/api-keys              整体替换（删除某个key_type传null或不传即可）
-GET    /api/user/settings              获取用户设置
-PUT    /api/user/settings              更新用户设置（整体替换）
+GET    /api/user/settings/preferences   获取投资偏好
+PUT    /api/user/settings/preferences   更新投资偏好（整体替换）
+GET    /api/user/settings/system        获取系统设置
+PUT    /api/user/settings/system        更新系统设置（整体替换）
 ```
 
 ### 4.3 趋势管理（新增）
@@ -708,7 +704,7 @@ volumes:
 | `ENCRYPTION_KEY` | API Key 加密密钥 | 是（生产环境） |
 | `JWT_SECRET` | JWT 签名密钥 | 是（生产环境） |
 
-其余配置（LLM Provider、tushare token 等）由用户在 Web 界面配置，存储在数据库中，不再依赖 `.env` 文件。
+其余配置（LLM Provider、tushare token 等）通过全局环境变量（`.env` 文件）配置，不存入数据库。
 
 ## 13. CI/CD 设计
 

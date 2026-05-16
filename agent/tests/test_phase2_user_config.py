@@ -1,4 +1,4 @@
-"""Phase 2 user config API tests: preferences, api-keys, settings, ENCRYPTION_KEY missing 503."""
+"""Phase 2 user config API tests: preferences, settings, ENCRYPTION_KEY missing 503."""
 
 import os
 import pytest
@@ -56,34 +56,6 @@ class TestPreferences:
         res = client.get("/api/user/settings/preferences", headers=_headers(token))
         assert res.status_code == 200
         assert res.json()["investment_style"] == "价值投资"
-
-
-class TestApiKeys:
-    def test_get_default_empty(self, authed):
-        client, token = authed
-        res = client.get("/api/user/settings/apikeys", headers=_headers(token))
-        assert res.status_code == 200
-        assert res.json() == {}
-
-    def test_put_encrypts_key_and_get_decrypts(self, authed):
-        client, token = authed
-        keys = {"llm_provider": {"key": "sk-secret-key", "label": "OpenRouter"}}
-        res = client.put("/api/user/settings/apikeys", json=keys, headers=_headers(token))
-        assert res.status_code == 200
-
-        # GET should return decrypted plaintext
-        res = client.get("/api/user/settings/apikeys", headers=_headers(token))
-        assert res.status_code == 200
-        data = res.json()
-        assert data["llm_provider"]["key"] == "sk-secret-key"
-        assert data["llm_provider"]["label"] == "OpenRouter"
-
-    def test_put_without_encryption_key_returns_503(self, authed, monkeypatch):
-        monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
-        client, token = authed
-        keys = {"llm_provider": {"key": "sk-secret"}}
-        res = client.put("/api/user/settings/apikeys", json=keys, headers=_headers(token))
-        assert res.status_code == 503
 
 
 class TestSettings:

@@ -71,15 +71,13 @@ def test_valid_jwt_allows_access() -> None:
 def test_docker_gateway_dev_write_allowed_only_with_compose_trust_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    request = SimpleNamespace(client=SimpleNamespace(host="172.18.0.1"))
-    monkeypatch.setattr(
-        api_server,
-        "_default_gateway_ips",
-        lambda: {ipaddress.IPv4Address("172.18.0.1")},
-    )
+    # Without the env var, Docker bridge IPs are not trusted
+    monkeypatch.delenv("VIBE_TRADING_TRUST_DOCKER_LOOPBACK", raising=False)
+    request = SimpleNamespace(client=SimpleNamespace(host="10.0.0.1"), headers={"x-forwarded-for": "172.18.0.1"})
 
     assert not api_server._is_local_client(request)
 
+    # With the env var, Docker bridge forwarded-for IPs are trusted
     monkeypatch.setenv("VIBE_TRADING_TRUST_DOCKER_LOOPBACK", "1")
 
     assert api_server._is_local_client(request)
@@ -88,13 +86,9 @@ def test_docker_gateway_dev_write_allowed_only_with_compose_trust_flag(
 def test_docker_network_peer_is_not_local_even_with_compose_trust_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    request = SimpleNamespace(client=SimpleNamespace(host="172.18.0.42"))
+    # A non-Docker-bridge IP (outside 172.16.0.0/12) should not be trusted
     monkeypatch.setenv("VIBE_TRADING_TRUST_DOCKER_LOOPBACK", "1")
-    monkeypatch.setattr(
-        api_server,
-        "_default_gateway_ips",
-        lambda: {ipaddress.IPv4Address("172.18.0.1")},
-    )
+    request = SimpleNamespace(client=SimpleNamespace(host="172.18.0.42"), headers={})
 
     assert not api_server._is_local_client(request)
 

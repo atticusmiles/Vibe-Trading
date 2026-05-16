@@ -8,7 +8,7 @@ from pathlib import Path
 
 from src.core.config import get_data_dir
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 _CREATE_SCHEMA_META = """
 CREATE TABLE IF NOT EXISTS _schema_meta (
@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS users (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     username        TEXT UNIQUE NOT NULL,
     password_hash   TEXT NOT NULL,
-    api_keys        TEXT DEFAULT '{}',
     preferences     TEXT DEFAULT '{}',
     settings        TEXT DEFAULT '{}',
     created_at      TEXT DEFAULT (datetime('now')),
@@ -108,6 +107,7 @@ def _set_schema_version(conn: sqlite3.Connection, version: int) -> None:
 _MIGRATIONS: list[tuple[int, list[str]]] = [
     (1, [_CREATE_SCHEMA_META, _CREATE_USERS_TABLE]),
     (2, _CREATE_SESSION_SEARCH_TABLES + _CREATE_FTS_AND_TRIGGERS),
+    (3, ["ALTER TABLE users DROP COLUMN api_keys"]),
 ]
 
 
@@ -123,6 +123,10 @@ def init_db() -> None:
                 for stmt in statements:
                     try:
                         conn.execute(stmt)
-                    except sqlite3.OperationalError:
-                        pass  # already exists (e.g. FTS5 virtual table)
+                    except sqlite3.OperationalError as exc:
+                        msg = str(exc).lower()
+                        if "already exists" in msg or "no such column" in msg:
+                            pass  # table/index already created
+                        else:
+                            raise
                 _set_schema_version(conn, target_version)

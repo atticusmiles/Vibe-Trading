@@ -17,11 +17,12 @@ def _module_name() -> str:
 def test_signal_engine_rejects_top_level_execution(tmp_path) -> None:
     artifact = tmp_path / "top_level_rce"
     signal_file = tmp_path / "signal_engine.py"
+    artifact_path = str(artifact).replace("\\", "/")
     signal_file.write_text(
         "\n".join(
             [
                 "import os",
-                f"os.system('touch {artifact}')",
+                f"os.system('touch {artifact_path}')",
                 "class SignalEngine:",
                 "    def generate(self, *args, **kwargs):",
                 "        return []",
@@ -39,12 +40,13 @@ def test_signal_engine_rejects_top_level_execution(tmp_path) -> None:
 def test_signal_engine_rejects_class_level_execution(tmp_path) -> None:
     artifact = tmp_path / "class_level_rce"
     signal_file = tmp_path / "signal_engine.py"
+    artifact_path = str(artifact).replace("\\", "/")
     signal_file.write_text(
         "\n".join(
             [
                 "import os",
                 "class SignalEngine:",
-                f"    os.system('touch {artifact}')",
+                f"    os.system('touch {artifact_path}')",
                 "    def generate(self, *args, **kwargs):",
                 "        return []",
             ]

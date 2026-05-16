@@ -19,9 +19,12 @@ export function isAuthRequiredError(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 401 || error.status === 403);
 }
 
+let _handling401 = false;
+
 function handle401(status: number) {
-  if (status === 401) {
+  if (status === 401 && !_handling401) {
     if (window.location.pathname === "/login") return;
+    _handling401 = true;
     import("@/lib/apiAuth").then(({ clearApiAuthKey }) => {
       clearApiAuthKey();
       window.location.href = "/login";
@@ -59,7 +62,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw err;
   }
   const text = await res.text();
-  return text ? JSON.parse(text) : ({} as T);
+  try {
+    return text ? JSON.parse(text) : ({} as T);
+  } catch {
+    throw new ApiError(`Invalid JSON response from ${path}`, res.status);
+  }
 }
 
 export interface UploadResult {
@@ -73,7 +80,9 @@ async function uploadFile(file: File): Promise<UploadResult> {
   form.append("file", file);
   const res = await fetch(`${BASE}/upload`, { method: "POST", headers: authHeaders(), body: form });
   if (!res.ok) {
-    throw await errorFromResponse(res);
+    const err = await errorFromResponse(res);
+    handle401(err.status);
+    throw err;
   }
   return res.json();
 }
@@ -99,9 +108,6 @@ export const api = {
     }),
 
   // User config
-  getApiKeys: () => request<Record<string, unknown>>("/api/user/settings/apikeys"),
-  updateApiKeys: (data: Record<string, unknown>) =>
-    request<{ detail: string }>("/api/user/settings/apikeys", { method: "PUT", body: JSON.stringify(data) }),
   getPreferences: () => request<Record<string, unknown>>("/api/user/settings/preferences"),
   updatePreferences: (prefs: Record<string, unknown>) =>
     request<{ detail: string }>("/api/user/settings/preferences", { method: "PUT", body: JSON.stringify(prefs) }),

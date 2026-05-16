@@ -28,66 +28,26 @@ class CheckResult:
 
 def _check_llm_provider() -> CheckResult:
     """Verify LLM provider connectivity."""
-    from src.providers.llm import _ensure_dotenv, _sync_provider_env
+    from src.providers.llm import _ensure_dotenv
 
     _ensure_dotenv()
-    provider = os.getenv("LANGCHAIN_PROVIDER", "").strip()
-    model = os.getenv("LANGCHAIN_MODEL_NAME", "").strip()
+    base_url = os.getenv("LLM_BASE_URL", "").strip()
+    model = os.getenv("LLM_MODEL_NAME", "").strip()
+    api_key = os.getenv("LLM_API_KEY", "").strip()
 
-    if not provider:
-        return CheckResult(
-            name="LLM Provider",
-            status="not_configured",
-            message="LANGCHAIN_PROVIDER not set in .env",
-            impact="agent cannot function",
-            critical=True,
-        )
     if not model:
         return CheckResult(
-            name=f"LLM ({provider})",
+            name="LLM",
             status="not_configured",
-            message="LANGCHAIN_MODEL_NAME not set in .env",
+            message="LLM_MODEL_NAME not set in .env",
             impact="agent cannot function",
             critical=True,
         )
-
-    _sync_provider_env()
-    base_url = os.getenv("OPENAI_BASE_URL", "") or os.getenv("OPENAI_API_BASE", "")
-
-    if provider.lower() in {"openai-codex", "openai_codex"}:
-        try:
-            from src.providers.openai_codex import get_openai_codex_login_status
-
-            token = get_openai_codex_login_status()
-        except Exception as exc:
-            return CheckResult(
-                name=f"LLM ({provider})",
-                status="error",
-                message=f"OAuth status unavailable: {exc}",
-                impact="run `vibe-trading provider login openai-codex`",
-                critical=True,
-            )
-        if not token:
-            return CheckResult(
-                name=f"LLM ({provider})",
-                status="not_configured",
-                message="ChatGPT OAuth login not found",
-                impact="run `vibe-trading provider login openai-codex`",
-                critical=True,
-            )
-        account = getattr(token, "account_id", None) or "authenticated account"
-        return CheckResult(
-            name=f"LLM ({provider})",
-            status="ready",
-            message=f"{model} via ChatGPT OAuth ({account})",
-            impact="",
-        )
-
     if not base_url:
         return CheckResult(
-            name=f"LLM ({provider})",
+            name="LLM",
             status="not_configured",
-            message=f"base URL not set for {provider}",
+            message="LLM_BASE_URL not set in .env",
             impact="agent cannot function",
             critical=True,
         )
@@ -96,20 +56,20 @@ def _check_llm_provider() -> CheckResult:
     try:
         import requests
 
-        # Strip /v1 suffix for health check, just test TCP+SSL
         ping_url = base_url.rstrip("/")
         if ping_url.endswith("/v1"):
             ping_url = ping_url[:-3]
-        resp = requests.get(ping_url, timeout=10)
+        requests.get(ping_url, timeout=10)
+        key_status = "key set" if api_key else "no key (local?)"
         return CheckResult(
-            name=f"LLM ({provider})",
+            name="LLM",
             status="ready",
-            message=f"{model} via {base_url}",
+            message=f"{model} via {base_url} ({key_status})",
             impact="",
         )
     except Exception as exc:
         return CheckResult(
-            name=f"LLM ({provider})",
+            name="LLM",
             status="error",
             message=f"{type(exc).__name__}: {exc}",
             impact="agent cannot function",
@@ -281,7 +241,7 @@ def run_preflight(console: Optional[Console] = None) -> List[CheckResult]:
     has_critical = any(r.critical and r.status != "ready" for r in results)
     if has_critical:
         console.print("\n[bold red]Critical check failed - agent cannot start without a working LLM provider.[/bold red]")
-        console.print("[dim]  See: agent/.env.example for configuration reference[/dim]")
+        console.print("[dim]  See: .env.example for configuration reference[/dim]")
     else:
         ready_count = sum(1 for r in results if r.status == "ready")
         console.print(f"\n[dim]{ready_count}/{len(results)} services ready[/dim]")

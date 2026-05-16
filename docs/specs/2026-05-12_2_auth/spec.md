@@ -2,7 +2,7 @@
 
 ## 1. 概述
 
-**目标**：建立多用户认证体系，包括用户注册/登录（JWT）、API Key 加密存储、用户偏好和设置管理，前后端一起交付。
+**目标**：建立多用户认证体系，包括用户注册/登录（JWT）、用户偏好和设置管理，前后端一起交付。LLM Provider 和数据源配置通过全局环境变量管理，不存入数据库。
 
 **与前后阶段的关系**：本阶段是所有业务功能的前提。后续阶段的所有 API 都需要 JWT 鉴权，所有业务数据按用户隔离。
 
@@ -17,31 +17,11 @@ CREATE TABLE users (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     username        TEXT UNIQUE NOT NULL,
     password_hash   TEXT NOT NULL,
-    api_keys        TEXT DEFAULT '{}',    -- JSON，敏感字段加密
     preferences     TEXT DEFAULT '{}',    -- JSON，投资偏好
     settings        TEXT DEFAULT '{}',    -- JSON，系统设置（敏感字段加密）
     created_at      TEXT DEFAULT (datetime('now')),
     updated_at      TEXT DEFAULT (datetime('now'))
 );
-```
-
-**api_keys JSON 结构**（存储格式，敏感字段已加密）：
-```json
-{
-    "llm_provider": {
-        "key": "enc:dGVzdA==:YWJjZA==:eHl6dw==",
-        "label": "OpenRouter",
-        "model": "anthropic/claude-sonnet-4-20250514",
-        "base_url": "https://openrouter.ai/api/v1",
-        "provider": "openrouter"
-    },
-    "tushare": {
-        "key": "enc:bm9uYw==:ZGVmZw==:aGloaQ=="
-    },
-    "searxng": {
-        "base_url": "http://localhost:8080"
-    }
-}
 ```
 
 **preferences JSON 结构**：
@@ -106,29 +86,21 @@ PUT    /auth/password
 
 所有端点通过 JWT 中间件自动获取 user_id，不需要在 URL 或请求体中传递。
 
-**设计原则**：每个配置组（preferences、api-keys、settings）有独立的 GET/PUT 端点，PUT 为全量替换（不支持 PATCH 部分更新）。前端读取当前值 → 用户修改 → 提交完整 JSON 替换。
+**设计原则**：每个配置组（preferences、settings）有独立的 GET/PUT 端点，PUT 为全量替换（不支持 PATCH 部分更新）。前端读取当前值 → 用户修改 → 提交完整 JSON 替换。LLM 和数据源配置通过全局 `.env` 管理，不经过这些端点。
 
 ```
-GET    /api/user/preferences
+GET    /api/user/settings/preferences
 响应：{"investment_style": "价值投资", ...}
 
-PUT    /api/user/preferences
+PUT    /api/user/settings/preferences
 请求：完整 JSON（全量替换）
 响应：200 OK
 
-GET    /api/user/api-keys
-响应：{"llm_provider": {"label": "OpenRouter", "key": "sk-xxx..."}, ...}
-（解密后返回明文，前端直接展示）
-
-PUT    /api/user/api-keys
-请求：完整 JSON（全量替换，删除某类 key 直接不包含在 JSON 中），存储时自动加密 key 字段，其他字段明文
-响应：200 OK
-
-GET    /api/user/settings
+GET    /api/user/settings/system
 响应：{"news_archive_time": "08:00", ...}
 （settings 中敏感字段如 feishu.app_secret 同样解密后返回明文）
 
-PUT    /api/user/settings
+PUT    /api/user/settings/system
 请求：完整 JSON（全量替换）
 响应：200 OK
 ```
@@ -201,22 +173,15 @@ PUT    /api/user/settings
 
 ### 5.2 用户设置页面（`/settings`）
 
-三个 Tab：**API Key 配置** | **投资偏好** | **系统设置**
+三个 Tab：**投资偏好** | **系统设置** | **安全**
 
-**API Key 配置 Tab**：
+**安全 Tab**：
 ```
 ┌─────────────────────────────────────────┐
-│  LLM Provider                           │
-│  标签：[OpenRouter    ]                  │
-│  Key： [sk-or-v1-xxxxx...abcd]          │  ← 明文显示
-│  模型：[anthropic/claude-sonnet-4-20250514]              │
-│  Base URL：[https://openrouter.ai/api/v1]│
-│                                         │
-│  tushare                                │
-│  Token：[a1b2c3d4efgh]                   │
-│                                         │
-│  searxng                                │
-│  地址：[http://localhost:8080]           │
+│  修改密码                               │
+│  当前密码：[______________]              │
+│  新密码：  [______________]              │
+│  确认密码：[______________]              │
 │                                         │
 │  [保存]                                 │
 └─────────────────────────────────────────┘
@@ -257,9 +222,9 @@ PUT    /api/user/settings
 - [ ] 可通过 API 注册新用户、登录获取 JWT
 - [ ] 注册重复用户名返回 409
 - [ ] 所有 /api/* 端点需要 Bearer Token 才能访问，无 Token 返回 401
-- [ ] 不同用户的 API Key / 偏好 / 设置完全隔离
-- [ ] 敏感字段（key/secret/app_secret）存储加密，读取返回明文
+- [ ] 不同用户的偏好 / 设置完全隔离
+- [ ] 敏感字段（secret/app_secret）存储加密，读取返回明文
 - [ ] ENCRYPTION_KEY 缺失时写入敏感字段返回 503
 - [ ] 前端登录/注册流程完整可用
-- [ ] 前端设置页面可管理 API Key、偏好、系统设置（飞书配置区域在阶段 8 实现，本阶段不渲染）
+- [ ] 前端设置页面可管理偏好、系统设置、密码修改
 - [ ] Token 过期后前端自动跳转到登录页

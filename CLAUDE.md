@@ -73,7 +73,7 @@ vibe-trading-mcp
 
 **Memory** (`agent/src/memory/`): Cross-session persistent memory stored in `~/.vibe-trading/memory/`.
 
-**Providers** (`agent/src/providers/`): LLM abstraction layer. `chat.py` defines `ChatLLM` (raw message interface with function calling). Supports 13 providers (OpenRouter, OpenAI, DeepSeek, Gemini, Groq, DashScope, Zhipu, Moonshot, MiniMax, Xiaomi, Z.ai, Ollama, OpenAI Codex OAuth).
+**Providers** (`agent/src/providers/`): LLM abstraction layer. `llm.py` provides `build_llm()` which reads `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL_NAME` from `.env` environment variables (global, not per-user). Works with any OpenAI-compatible API (OpenRouter, DeepSeek, Gemini, Groq, DashScope, Zhipu, Moonshot, MiniMax, Ollama, etc). `chat.py` defines `ChatLLM` (raw message interface with function calling).
 
 **Frontend** (`frontend/`): React 19 + Vite + TypeScript + Tailwind + Zustand + ECharts. Dev server on :5899, proxies API to :8899. Production: FastAPI serves `frontend/dist/` as static files.
 
@@ -119,7 +119,7 @@ Automatically updates pyproject.toml + frontend/package.json, commits, and creat
 
 ## Environment
 
-Copy `agent/.env.example` to `agent/.env` and set `LANGCHAIN_PROVIDER`, API key, base URL, and model name. `TUSHARE_TOKEN` is optional (AKShare is the free fallback for A-shares).
+Copy `.env.example` to `.env` and set `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL_NAME`. `TUSHARE_TOKEN` is optional (AKShare is the free fallback for A-shares).
 
 ## Key Patterns
 
@@ -127,4 +127,4 @@ Copy `agent/.env.example` to `agent/.env` and set `LANGCHAIN_PROVIDER`, API key,
 - **Loader auto-registration**: Data loaders use `@register` decorator. `registry.py` lazily imports all loader modules and resolves per-market fallback chains.
 - **5-layer compression**: The agent loop uses microcompact → context collapse → LLM summary → compact tool → iterative update to manage long conversations.
 - **Skill frontmatter**: Each skill has YAML frontmatter (`name`, `description`, `category`) parsed by `frontmatter.py`.
-- **Security boundaries**: API auth via `API_AUTH_KEY`, shell tools gated by entry point, file/upload roots restricted, path containment enforced.
+- **Security boundaries**: API auth via JWT tokens, shell tools gated by entry point, file/upload roots restricted, path containment enforced. LLM and data source configuration via global `.env` environment variables (not per-user).

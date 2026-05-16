@@ -95,8 +95,3 @@ async def require_event_stream_jwt_auth(
         return int(user_id)
     except (TypeError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
-
-
-def get_current_user_id(request: Request) -> int:
-    """Extract user_id stored in request.state by the middleware."""
-    return getattr(request.state, "user_id", 0)

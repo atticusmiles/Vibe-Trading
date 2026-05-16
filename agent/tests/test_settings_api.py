@@ -1,267 +1,98 @@
-"""Regression tests for local settings API endpoints."""
+"""Regression tests for user settings API endpoints (preferences, system, password)."""
 
 from __future__ import annotations
 
-from pathlib import Path
+import os
 
 import pytest
 from fastapi.testclient import TestClient
 
+os.environ["JWT_SECRET"] = "test-secret-key-at-least-32-characters-long"
+os.environ["ENCRYPTION_KEY"] = "a" * 64
+
 import api_server
+from src.db import init_db
+
+app = api_server.app
+
+
+@pytest.fixture(autouse=True)
+def _setup_db(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key-at-least-32-characters-long")
+    monkeypatch.setenv("ENCRYPTION_KEY", "a" * 64)
+    from src.core import config
+    monkeypatch.setattr(config, "get_data_dir", lambda: tmp_path / "data")
+    init_db()
+    yield
 
 
 @pytest.fixture
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    env_example = tmp_path / ".env.example"
-    env_path = tmp_path / ".env"
-    env_example.write_text(
-        "\n".join(
-            [
-                "LANGCHAIN_PROVIDER=openrouter",
-                "LANGCHAIN_MODEL_NAME=deepseek/deepseek-v3.2",
-                "OPENROUTER_BASE_URL=https://openrouter.ai/api/v1",
-                "OPENROUTER_API_KEY=sk-or-v1-your-key-here",
-                "LANGCHAIN_TEMPERATURE=0.2",
-                "TIMEOUT_SECONDS=90",
-                "MAX_RETRIES=3",
-                "LANGCHAIN_REASONING_EFFORT=max",
-                "TUSHARE_TOKEN=your-tushare-token",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(api_server, "ENV_PATH", env_path)
-    monkeypatch.setattr(api_server, "ENV_EXAMPLE_PATH", env_example)
-    monkeypatch.setattr(api_server, "_baostock_supported", lambda: False)
-    monkeypatch.setattr(api_server, "_baostock_installed", lambda: False)
-    monkeypatch.delenv("API_AUTH_KEY", raising=False)
-    return TestClient(api_server.app, client=("127.0.0.1", 50000))
+def client():
+    return TestClient(app, client=("127.0.0.1", 50000))
 
 
-def test_get_llm_settings_is_side_effect_free_and_hides_placeholders(
-    client: TestClient, tmp_path: Path,
-) -> None:
-    response = client.get("/settings/llm")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["provider"] == "openrouter"
-    assert body["model_name"] == "deepseek/deepseek-v3.2"
-    assert body["api_key_configured"] is False
-    assert body["api_key_hint"] is None
-    assert not Path(body["env_path"]).is_absolute()
-    assert body["env_path"].endswith(".env")
-    assert body["reasoning_effort"] == "max"
-    assert not (tmp_path / ".env").exists()
+@pytest.fixture
+def authed(client):
+    """Register + login, return (client, token)."""
+    client.post("/auth/register", json={"username": "settingsuser", "password": "password123"})
+    res = client.post("/auth/login", json={"username": "settingsuser", "password": "password123"})
+    token = res.json()["access_token"]
+    return client, token
 
 
-@pytest.mark.parametrize("placeholder", ["sk-xxx", "xxx", "gsk_xxx"])
-def test_llm_settings_treat_documented_key_placeholders_as_unconfigured(
-    client: TestClient, tmp_path: Path, placeholder: str,
-) -> None:
-    (tmp_path / ".env").write_text(
-        "\n".join(
-            [
-                "LANGCHAIN_PROVIDER=deepseek",
-                "LANGCHAIN_MODEL_NAME=deepseek-chat",
-                f"DEEPSEEK_API_KEY={placeholder}",
-                "DEEPSEEK_BASE_URL=https://api.deepseek.com/v1",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    response = client.get("/settings/llm")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["api_key_configured"] is False
-    assert body["api_key_hint"] is None
-    assert placeholder not in response.text
+def _headers(token):
+    return {"Authorization": f"Bearer {token}"}
 
 
-def test_update_llm_settings_persists_project_env(
-    client: TestClient, tmp_path: Path,
-) -> None:
-    response = client.put(
-        "/settings/llm",
-        json={
-            "provider": "openrouter",
-            "model_name": "deepseek/deepseek-v3.2",
-            "base_url": "https://openrouter.ai/api/v1",
-            "api_key": "or-secret-value",
-            "temperature": 0.1,
-            "timeout_seconds": 45,
-            "max_retries": 1,
-            "reasoning_effort": "max",
-        },
-    )
+class TestPreferencesEndpoint:
+    def test_get_default_empty(self, authed):
+        client, token = authed
+        res = client.get("/api/user/settings/preferences", headers=_headers(token))
+        assert res.status_code == 200
+        assert res.json() == {}
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["provider"] == "openrouter"
-    assert body["api_key_configured"] is True
-    assert body["api_key_hint"] is None
-    assert "or-secret-value" not in response.text
-    assert "or-s...alue" not in response.text
+    def test_put_and_get(self, authed):
+        client, token = authed
+        prefs = {"investment_style": "价值投资", "risk_appetite": "稳健型"}
+        res = client.put("/api/user/settings/preferences", json=prefs, headers=_headers(token))
+        assert res.status_code == 200
 
-    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
-    assert "LANGCHAIN_PROVIDER=openrouter" in env_text
-    assert "OPENROUTER_API_KEY=or-secret-value" in env_text
-    assert "LANGCHAIN_REASONING_EFFORT=max" in env_text
-    assert "sk-or-v1-your-key-here" not in env_text
+        res = client.get("/api/user/settings/preferences", headers=_headers(token))
+        assert res.status_code == 200
+        assert res.json()["investment_style"] == "价值投资"
 
 
-def test_get_data_source_settings_treats_placeholder_as_unconfigured(
-    client: TestClient, tmp_path: Path,
-) -> None:
-    response = client.get("/settings/data-sources")
+class TestSystemSettingsEndpoint:
+    def test_get_default_empty(self, authed):
+        client, token = authed
+        res = client.get("/api/user/settings/system", headers=_headers(token))
+        assert res.status_code == 200
+        assert res.json() == {}
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["tushare_token_configured"] is False
-    assert body["tushare_token_hint"] is None
-    assert body["baostock_supported"] is False
-    assert body["baostock_installed"] is False
-    assert not Path(body["env_path"]).is_absolute()
-    assert body["env_path"].endswith(".env")
-    assert not (tmp_path / ".env").exists()
+    def test_put_encrypts_app_secret(self, authed):
+        client, token = authed
+        settings = {"news_archive_time": "08:00", "feishu": {"app_secret": "my-feishu-secret"}}
+        res = client.put("/api/user/settings/system", json=settings, headers=_headers(token))
+        assert res.status_code == 200
 
-
-def test_settings_response_never_exposes_configured_secret_hints(
-    client: TestClient, tmp_path: Path,
-) -> None:
-    (tmp_path / ".env").write_text(
-        "\n".join(
-            [
-                "LANGCHAIN_PROVIDER=openrouter",
-                "OPENROUTER_API_KEY=or-secret-private-value",
-                "TUSHARE_TOKEN=ts-secret-private-token",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    llm_response = client.get("/settings/llm")
-    data_response = client.get("/settings/data-sources")
-
-    assert llm_response.status_code == 200
-    assert data_response.status_code == 200
-    llm_body = llm_response.json()
-    data_body = data_response.json()
-    assert llm_body["api_key_configured"] is True
-    assert llm_body["api_key_hint"] is None
-    assert data_body["tushare_token_configured"] is True
-    assert data_body["tushare_token_hint"] is None
-    assert "or-secret-private-value" not in llm_response.text
-    assert "or-s...alue" not in llm_response.text
-    assert "ts-secret-private-token" not in data_response.text
-    assert "ts-s...oken" not in data_response.text
+        res = client.get("/api/user/settings/system", headers=_headers(token))
+        assert res.status_code == 200
+        data = res.json()
+        assert data["news_archive_time"] == "08:00"
+        assert data["feishu"]["app_secret"] == "my-feishu-secret"
 
 
-def test_settings_reads_reject_remote_dev_mode_clients(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    env_path = tmp_path / ".env"
-    env_example = tmp_path / ".env.example"
-    env_path.write_text(
-        "\n".join(
-            [
-                "LANGCHAIN_PROVIDER=openrouter",
-                "OPENROUTER_API_KEY=or-secret-value",
-                "TUSHARE_TOKEN=ts-secret-token",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    env_example.write_text("LANGCHAIN_PROVIDER=openai\n", encoding="utf-8")
-    monkeypatch.setattr(api_server, "ENV_PATH", env_path)
-    monkeypatch.setattr(api_server, "ENV_EXAMPLE_PATH", env_example)
-    monkeypatch.delenv("API_AUTH_KEY", raising=False)
-    remote_client = TestClient(api_server.app, client=("203.0.113.10", 50000))
+class TestAuthRequired:
+    def test_preferences_requires_auth(self, client):
+        res = client.get("/api/user/settings/preferences")
+        assert res.status_code in {401, 403}
 
-    llm_response = remote_client.get("/settings/llm")
-    data_source_response = remote_client.get("/settings/data-sources")
+    def test_system_settings_requires_auth(self, client):
+        res = client.get("/api/user/settings/system")
+        assert res.status_code in {401, 403}
 
-    assert llm_response.status_code == 403
-    assert data_source_response.status_code == 403
-    assert "or-s...alue" not in llm_response.text
-    assert "ts-s...oken" not in data_source_response.text
-
-
-def test_settings_reads_require_bearer_when_api_auth_key_is_configured(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    env_path = tmp_path / ".env"
-    env_example = tmp_path / ".env.example"
-    env_path.write_text(
-        "\n".join(
-            [
-                "LANGCHAIN_PROVIDER=openrouter",
-                "OPENROUTER_API_KEY=or-secret-value",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    env_example.write_text("LANGCHAIN_PROVIDER=openai\n", encoding="utf-8")
-    monkeypatch.setattr(api_server, "ENV_PATH", env_path)
-    monkeypatch.setattr(api_server, "ENV_EXAMPLE_PATH", env_example)
-    monkeypatch.setenv("API_AUTH_KEY", "settings-secret")
-    local_client = TestClient(api_server.app, client=("127.0.0.1", 50000))
-
-    unauthenticated_response = local_client.get("/settings/llm")
-    authenticated_response = local_client.get(
-        "/settings/llm",
-        headers={"Authorization": "Bearer settings-secret"},
-    )
-
-    assert unauthenticated_response.status_code == 401
-    assert authenticated_response.status_code == 200
-    assert authenticated_response.json()["api_key_configured"] is True
-    assert authenticated_response.json()["api_key_hint"] is None
-    assert "or-secret-value" not in authenticated_response.text
-    assert "or-s...alue" not in authenticated_response.text
-
-
-def test_update_data_source_settings_persists_tushare_token(
-    client: TestClient, tmp_path: Path,
-) -> None:
-    response = client.put(
-        "/settings/data-sources",
-        json={"tushare_token": "ts-secret-token"},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["tushare_token_configured"] is True
-    assert body["tushare_token_hint"] is None
-    assert "ts-secret-token" not in response.text
-    assert "ts-s...oken" not in response.text
-
-    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
-    assert "TUSHARE_TOKEN=ts-secret-token" in env_text
-
-
-def test_settings_writes_reject_remote_dev_mode_clients(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    env_example = tmp_path / ".env.example"
-    env_path = tmp_path / ".env"
-    env_example.write_text("LANGCHAIN_PROVIDER=openai\n", encoding="utf-8")
-    monkeypatch.setattr(api_server, "ENV_PATH", env_path)
-    monkeypatch.setattr(api_server, "ENV_EXAMPLE_PATH", env_example)
-    monkeypatch.delenv("API_AUTH_KEY", raising=False)
-    remote_client = TestClient(api_server.app, client=("203.0.113.10", 50000))
-
-    response = remote_client.put(
-        "/settings/data-sources",
-        json={"tushare_token": "ts-secret-token"},
-    )
-
-    assert response.status_code == 403
-    assert not env_path.exists()
+    def test_remote_client_rejected(self):
+        remote = TestClient(app, client=("203.0.113.10", 50000))
+        res = remote.get("/api/user/settings/preferences")
+        assert res.status_code in {401, 403}

@@ -71,7 +71,7 @@ class TestJWTToken:
 
         from src.auth.service import decode_token
 
-        with pytest.raises(Exception):
+        with pytest.raises(pyjwt.ExpiredSignatureError):
             decode_token(expired)
 
     def test_invalid_signature_raises(self):

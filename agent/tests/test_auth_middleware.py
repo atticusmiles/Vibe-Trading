@@ -111,11 +111,33 @@ class TestIsLocalClient:
 
 
 class TestRequireUser:
-    """Test that require_user dependency rejects dev-mode user_id==0.
+    """Test that require_user dependency rejects dev-mode user_id==0."""
 
-    Verified indirectly through API tests in test_phase2_auth.py and
-    test_e2e_auth_lifecycle.py — those tests use a local client with
-    JWT_SECRET set, so require_jwt_auth returns a real user_id, and
-    require_user passes it through. If user_id==0 leaked through,
-    those tests would fail (they check 200, not 401).
-    """
+    def test_dev_mode_user_id_zero_rejected(self, tmp_path, monkeypatch):
+        """Without JWT_SECRET, local client gets user_id=0, which require_user must reject."""
+        import os
+
+        import pytest
+        from fastapi.testclient import TestClient
+
+        monkeypatch.delenv("JWT_SECRET", raising=False)
+        monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
+        monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+        from src.core import config
+
+        monkeypatch.setattr(config, "get_data_dir", lambda: tmp_path / "data")
+
+        # Reimport api_server to pick up the env change
+        import importlib
+
+        import api_server
+
+        importlib.reload(api_server)
+        from src.db import init_db
+
+        init_db()
+
+        client = TestClient(api_server.app, client=("127.0.0.1", 50000))
+        # /auth/me uses require_user which should reject user_id==0
+        res = client.get("/auth/me")
+        assert res.status_code == 401

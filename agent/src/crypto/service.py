@@ -41,7 +41,10 @@ def is_encryption_available() -> bool:
 
 
 def is_encrypted(value: str) -> bool:
-    return isinstance(value, str) and value.startswith(_PREFIX)
+    if not isinstance(value, str) or not value.startswith(_PREFIX):
+        return False
+    parts = value[len(_PREFIX):].split(":")
+    return len(parts) == 3
 
 
 def encrypt_value(plaintext: str) -> str:
@@ -98,8 +101,9 @@ def decrypt_sensitive_fields(data: Any) -> Any:
             if k in _SENSITIVE_KEYS and isinstance(v, str) and is_encrypted(v):
                 try:
                     result[k] = decrypt_value(v)
-                except Exception:
-                    result[k] = v
+                except Exception as exc:
+                    logger.warning("Decryption failed for field '%s': %s", k, exc)
+                    result[k] = "<DECRYPTION_FAILED>"
             else:
                 result[k] = decrypt_sensitive_fields(v)
         return result

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Database, KeyRound, Loader2, Lock, RotateCcw, Save, Server, SlidersHorizontal, Wrench, Briefcase } from "lucide-react";
+import { Loader2, Lock, RotateCcw, Save, Wrench, Briefcase } from "lucide-react";
 import { toast } from "sonner";
-import { api, isAuthRequiredError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 
 const fieldClass =
@@ -9,19 +9,10 @@ const fieldClass =
 const labelClass = "text-sm font-medium";
 const hintClass = "text-xs text-muted-foreground";
 
-const TABS = ["llm", "preferences", "system", "security"] as const;
+const TABS = ["preferences", "system", "security"] as const;
 type TabKey = (typeof TABS)[number];
 
-const tabMeta: Record<TabKey, { label: string; icon: typeof Server; sections: { id: string; label: string }[] }> = {
-  llm: {
-    label: "LLM & Data",
-    icon: Server,
-    sections: [
-      { id: "llm-config", label: "LLM Configuration" },
-      { id: "generation", label: "Generation Parameters" },
-      { id: "data-sources", label: "Data Sources" },
-    ],
-  },
+const tabMeta: Record<TabKey, { label: string; icon: typeof Wrench; sections: { id: string; label: string }[] }> = {
   preferences: {
     label: "Investment Preferences",
     icon: Briefcase,
@@ -134,176 +125,6 @@ function ActionBar({ saving, onSave, onReset }: { saving: boolean; onSave: () =>
   );
 }
 
-// ===== LLM & Data Page =====
-function LLMDataPage() {
-  const { t } = useI18n();
-  const [data, setData] = useState<Record<string, any>>({});
-  const [snapshot, setSnapshot] = useState<Record<string, any>>({});
-  const [apiKey, setApiKey] = useState("");
-  const [clearApiKey, setClearApiKey] = useState(false);
-  const [tushareToken, setTushareToken] = useState("");
-  const [clearTushare, setClearTushare] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const sections = tabMeta.llm.sections;
-  const activeId = useActiveSection(sections.map((s) => s.id));
-
-  useEffect(() => {
-    api.getApiKeys()
-      .then((d) => { setData(d); setSnapshot(JSON.parse(JSON.stringify(d))); })
-      .catch((err) => { if (isAuthRequiredError(err)) toast.error(err.message); })
-      .finally(() => setLoading(false));
-  }, []);
-
-  const llm = data.llm_provider || {} as any;
-  const gen = data.generation || {} as any;
-
-  const updateLlm = (patch: Record<string, any>) => setData({ ...data, llm_provider: { ...llm, ...patch } });
-  const updateGen = (patch: Record<string, any>) => setData({ ...data, generation: { ...gen, ...patch } });
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const payload = JSON.parse(JSON.stringify(data));
-      // Handle API key changes
-      if (clearApiKey) {
-        payload.llm_provider = { ...payload.llm_provider, key: "" };
-      } else if (apiKey.trim()) {
-        payload.llm_provider = { ...payload.llm_provider, key: apiKey.trim() };
-      }
-      // Handle tushare changes
-      if (clearTushare) {
-        payload.tushare = { ...(payload.tushare || {}), key: "" };
-      } else if (tushareToken.trim()) {
-        payload.tushare = { ...(payload.tushare || {}), key: tushareToken.trim() };
-      }
-      await api.updateApiKeys(payload);
-      setData(payload);
-      setSnapshot(JSON.parse(JSON.stringify(payload)));
-      setApiKey("");
-      setClearApiKey(false);
-      setTushareToken("");
-      setClearTushare(false);
-      toast.success("Settings saved");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const reset = () => {
-    setData(JSON.parse(JSON.stringify(snapshot)));
-    setApiKey("");
-    setClearApiKey(false);
-    setTushareToken("");
-    setClearTushare(false);
-  };
-
-  useCtrlS(save);
-
-  if (loading) return <div className="flex items-center gap-2 p-12 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> Loading...</div>;
-
-  const apiKeyConfigured = !!(llm.key && llm.key.trim());
-  const tushareConfigured = !!((data.tushare || {}).key || "").trim();
-
-  return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_180px]">
-      <div className="space-y-6">
-          {/* LLM Config */}
-          <section id="llm-config" className="rounded-lg border bg-card p-5 shadow-sm scroll-mt-20">
-            <div className="mb-4 flex items-center gap-2">
-              <Server className="h-4 w-4 text-primary" />
-              <h2 className="text-base font-semibold">LLM Configuration</h2>
-            </div>
-            <div className="grid gap-4 ">
-              <label className="grid gap-1">
-                <span className={labelClass}>Base URL</span>
-                <input value={llm.base_url || ""} onChange={(e) => updateLlm({ base_url: e.target.value })} className={fieldClass} placeholder="https://open.bigmodel.cn/api/coding/paas/v4" />
-              </label>
-              <label className="grid gap-1">
-                <span className={labelClass}>Model</span>
-                <input value={llm.model || ""} onChange={(e) => updateLlm({ model: e.target.value })} className={fieldClass} required placeholder="glm-5.1" />
-              </label>
-              <label className="grid gap-1">
-                <span className={labelClass}>API Key</span>
-                <div className="relative">
-                  <KeyRound className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className={`${fieldClass} pl-9`} placeholder={apiKeyConfigured ? "API key configured" : "Enter API key"} disabled={clearApiKey} />
-                </div>
-                <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <input type="checkbox" checked={clearApiKey} onChange={(e) => { setClearApiKey(e.target.checked); if (e.target.checked) setApiKey(""); }} className="h-3.5 w-3.5 accent-primary" />
-                  Clear saved key
-                </label>
-              </label>
-            </div>
-          </section>
-
-          {/* Generation */}
-          <section id="generation" className="rounded-lg border bg-card p-5 shadow-sm scroll-mt-20">
-            <div className="mb-4 flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-primary" />
-              <h2 className="text-base font-semibold">Generation Parameters</h2>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 ">
-              <label className="grid gap-1">
-                <span className={labelClass}>Temperature</span>
-                <input type="number" min={0} max={2} step={0.1} value={gen.temperature ?? 0} onChange={(e) => updateGen({ temperature: Number(e.target.value) })} className={fieldClass} />
-              </label>
-              <label className="grid gap-1">
-                <span className={labelClass}>Timeout (s)</span>
-                <input type="number" min={1} max={3600} value={gen.timeout_seconds ?? 120} onChange={(e) => updateGen({ timeout_seconds: Number(e.target.value) })} className={fieldClass} />
-              </label>
-              <label className="grid gap-1">
-                <span className={labelClass}>Max Retries</span>
-                <input type="number" min={0} max={20} value={gen.max_retries ?? 2} onChange={(e) => updateGen({ max_retries: Number(e.target.value) })} className={fieldClass} />
-              </label>
-              <label className="grid gap-1">
-                <span className={labelClass}>Reasoning Effort</span>
-                <select value={gen.reasoning_effort || ""} onChange={(e) => updateGen({ reasoning_effort: e.target.value })} className={fieldClass}>
-                  <option value="">Off</option>
-                  <option value="low">low</option>
-                  <option value="medium">medium</option>
-                  <option value="high">high</option>
-                  <option value="max">max</option>
-                </select>
-              </label>
-            </div>
-          </section>
-
-          {/* Data Sources */}
-          <section id="data-sources" className="rounded-lg border bg-card p-5 shadow-sm scroll-mt-20">
-            <div className="mb-4 flex items-center gap-2">
-              <Database className="h-4 w-4 text-primary" />
-              <h2 className="text-base font-semibold">Data Sources</h2>
-            </div>
-            <div className="grid gap-4 ">
-              <label className="grid gap-1">
-                <span className={labelClass}>Tushare Token</span>
-                <div className="relative">
-                  <KeyRound className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <input type="password" value={tushareToken} onChange={(e) => setTushareToken(e.target.value)} className={`${fieldClass} pl-9`} placeholder={tushareConfigured ? "Token configured" : "Enter token"} disabled={clearTushare} />
-                </div>
-                <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <input type="checkbox" checked={clearTushare} onChange={(e) => { setClearTushare(e.target.checked); if (e.target.checked) setTushareToken(""); }} className="h-3.5 w-3.5 accent-primary" />
-                  Clear saved token
-                </label>
-              </label>
-            </div>
-          </section>
-        </div>
-
-        {/* Right nav + actions */}
-        <aside className="hidden lg:block self-start sticky top-36">
-          <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Sections</h3>
-          <SectionNav sections={sections} activeId={activeId} />
-          <ActionBar saving={saving} onSave={save} onReset={reset} />
-        </aside>
-      </div>
-  );
-}
-
 // ===== Preferences Page =====
 const INVESTMENT_STYLES = ["价值投资", "成长投资", "指数投资", "量化交易"];
 const RISK_APPETITES = ["保守型", "稳健型", "激进型"];
@@ -324,7 +145,7 @@ function PreferencesPage() {
   useEffect(() => {
     api.getPreferences()
       .then((d) => { setData(d); setSnapshot(JSON.parse(JSON.stringify(d))); })
-      .catch((err) => toast.error(err.message))
+      .catch((err) => toast.error(err instanceof Error ? err.message : "Failed to load preferences"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -496,7 +317,7 @@ function SystemPage() {
   useEffect(() => {
     api.getSettings()
       .then((d) => { setData(d); setSnapshot(JSON.parse(JSON.stringify(d))); })
-      .catch((err) => toast.error(err.message))
+      .catch((err) => toast.error(err instanceof Error ? err.message : "Failed to load settings"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -610,7 +431,7 @@ function SecurityPage() {
 // ===== Main Settings Page =====
 export function Settings() {
   const { t } = useI18n();
-  const [tab, setTab] = useState<TabKey>("llm");
+  const [tab, setTab] = useState<TabKey>("preferences");
 
   return (
     <div>
@@ -641,7 +462,6 @@ export function Settings() {
       </div>
 
       <div className="p-6 pt-4">
-        {tab === "llm" && <LLMDataPage />}
         {tab === "preferences" && <PreferencesPage />}
         {tab === "system" && <SystemPage />}
         {tab === "security" && <SecurityPage />}

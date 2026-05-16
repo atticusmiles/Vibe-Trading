@@ -5,7 +5,7 @@
 - [ ] 新增 `agent/src/db/` 模块：数据库初始化、连接管理、schema 迁移
 - [ ] 实现 SQLite WAL 模式 + busy timeout 5s
 - [ ] 实现 `vibe.db` 初始化逻辑（首次启动自动建表）
-- [ ] 创建 users 表（含 api_keys / preferences / settings JSON 字段）
+- [ ] 创建 users 表（含 preferences / settings JSON 字段）
 - [ ] 实现 schema 版本管理（简单的版本号 + 迁移脚本列表）
 - [ ] 在 FastAPI lifespan 中注册 DB 初始化调用
 
@@ -35,12 +35,10 @@
 
 ## 后端 — 用户配置 API
 
-- [ ] 实现 `GET /api/user/preferences`：读取当前用户 preferences JSON
-- [ ] 实现 `PUT /api/user/preferences`：全量替换 preferences JSON
-- [ ] 实现 `GET /api/user/api-keys`：读取并解密，返回明文
-- [ ] 实现 `PUT /api/user/api-keys`：全量替换，自动加密敏感字段（删除某类 key 则不包含在 JSON 中）
-- [ ] 实现 `GET /api/user/settings`：读取 settings JSON，敏感字段解密返回明文
-- [ ] 实现 `PUT /api/user/settings`：全量替换，自动加密敏感字段
+- [ ] 实现 `GET /api/user/settings/preferences`：读取当前用户 preferences JSON
+- [ ] 实现 `PUT /api/user/settings/preferences`：全量替换 preferences JSON
+- [ ] 实现 `GET /api/user/settings/system`：读取 settings JSON，敏感字段解密返回明文
+- [ ] 实现 `PUT /api/user/settings/system`：全量替换，自动加密敏感字段
 
 ## 后端 — 迁移（一刀切）
 
@@ -61,9 +59,9 @@
 ## 前端 — 用户设置页
 
 - [ ] 新增 `/settings` 路由和页面组件
-- [ ] 实现 API Key 配置 Tab：表单 + 明文展示 + 编辑模式
 - [ ] 实现投资偏好 Tab：下拉选择 + 多选标签 + 数字输入
 - [ ] 实现系统设置 Tab：时间选择 + 频率选择 + 数字输入（飞书配置区域阶段 8 实现，不渲染）
+- [ ] 实现安全 Tab：密码修改表单
 - [ ] 实现保存交互：PUT 全量替换 + 成功提示
 
 ## 依赖同步

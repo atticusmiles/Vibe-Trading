@@ -7,7 +7,6 @@ V5: ReAct Agent + async /run + CORS env + SSE tool events.
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
 import logging
 import os
@@ -254,7 +253,6 @@ app.add_middleware(
 
 _security = HTTPBearer(auto_error=False)
 _SHELL_TOOLS_ENV = "VIBE_TRADING_ENABLE_SHELL_TOOLS"
-_DOCKER_LOOPBACK_ENV = "VIBE_TRADING_TRUST_DOCKER_LOOPBACK"
 
 
 async def require_auth(
@@ -276,57 +274,17 @@ async def require_event_stream_auth(
 
 
 def _is_local_client(request: Request) -> bool:
-    """Return whether the request originates from a loopback client."""
-    host = request.client.host if request.client else ""
-    if host in {"localhost", "testclient"}:
-        return True
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    if ip.is_loopback:
-        return True
-    return _trusted_docker_loopback_ip(ip)
+    """Return whether the request originates from a loopback client.
+
+    Delegates to the canonical implementation in src.auth.middleware.
+    """
+    from src.auth.middleware import _is_local_client as _middleware_is_local
+    return _middleware_is_local(request)
 
 
 def _env_flag_enabled(name: str) -> bool:
     """Return whether a boolean environment flag is enabled."""
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _default_gateway_ips() -> set[ipaddress.IPv4Address]:
-    """Return IPv4 default gateway addresses from Linux procfs."""
-    gateways: set[ipaddress.IPv4Address] = set()
-    try:
-        lines = Path("/proc/net/route").read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return gateways
-
-    for line in lines[1:]:
-        fields = line.split()
-        if len(fields) < 3 or fields[1] != "00000000":
-            continue
-        try:
-            raw = int(fields[2], 16).to_bytes(4, byteorder="little")
-            gateways.add(ipaddress.IPv4Address(raw))
-        except ValueError:
-            continue
-    return gateways
-
-
-def _trusted_docker_loopback_ip(ip: ipaddress._BaseAddress) -> bool:
-    """Return whether an IP is the trusted Docker host gateway.
-
-    Docker Desktop presents host requests to a container as the bridge gateway
-    instead of 127.0.0.1. This escape hatch is safe only when the published
-    port is bound to host loopback, so the official compose file enables it
-    together with a 127.0.0.1 port binding.
-    """
-    if not isinstance(ip, ipaddress.IPv4Address):
-        return False
-    if not _env_flag_enabled(_DOCKER_LOOPBACK_ENV):
-        return False
-    return ip in _default_gateway_ips()
 
 
 def _env_shell_tools_enabled() -> bool:
@@ -356,7 +314,6 @@ async def require_local_or_auth(
 # Helper Functions
 # ============================================================================
 
-TUSHARE_TOKEN_PLACEHOLDERS = {"", "your-tushare-token"}
 
 
 def _load_json_file(path: Path) -> Optional[Dict[str, Any]]:
@@ -702,7 +659,7 @@ async def list_runs(limit: int = 20):
 # ============================================================================
 
 class RegisterRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=32)
+    username: str = Field(..., min_length=3, max_length=32, pattern=r"^[a-zA-Z0-9_-]+$")
     password: str = Field(..., min_length=8, max_length=128)
 
 
@@ -729,18 +686,19 @@ async def require_user(user_id: int = Depends(require_auth)) -> int:
 
 @app.post("/auth/register", status_code=status.HTTP_201_CREATED)
 async def register(req: RegisterRequest):
+    import sqlite3 as _sqlite3
     from src.auth.service import hash_password
     from src.db import get_db
 
     hashed = hash_password(req.password)
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM users WHERE username = ?", (req.username,)).fetchone()
-        if existing:
+        try:
+            conn.execute(
+                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                (req.username, hashed),
+            )
+        except _sqlite3.IntegrityError:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
-        conn.execute(
-            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-            (req.username, hashed),
-        )
         user = conn.execute("SELECT id, username, created_at FROM users WHERE username = ?", (req.username,)).fetchone()
     return {"id": user["id"], "username": user["username"], "created_at": user["created_at"]}
 
@@ -752,7 +710,8 @@ async def login(req: LoginRequest):
 
     with get_db() as conn:
         user = conn.execute("SELECT id, username, password_hash FROM users WHERE username = ?", (req.username,)).fetchone()
-    if not user or not verify_password(req.password, user["password_hash"]):
+    stored_hash = user["password_hash"] if user else "$2b$12$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    if not user or not verify_password(req.password, stored_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     token = create_token(user["id"])
     return {"access_token": token, "token_type": "bearer", "expires_in": 86400}
@@ -790,44 +749,6 @@ async def change_password(req: ChangePasswordRequest, user_id: int = Depends(req
 # User Config Endpoints
 # ============================================================================
 
-@app.get("/api/user/settings/apikeys")
-async def get_api_keys(user_id: int = Depends(require_user)):
-    from src.crypto import decrypt_sensitive_fields
-    from src.db import get_db
-
-    with get_db() as conn:
-        row = conn.execute("SELECT api_keys FROM users WHERE id = ?", (user_id,)).fetchone()
-    data = json.loads(row["api_keys"]) if row and row["api_keys"] else {}
-    return decrypt_sensitive_fields(data)
-
-
-@app.put("/api/user/settings/apikeys")
-async def update_api_keys(api_keys: Dict[str, Any], user_id: int = Depends(require_user)):
-    from src.crypto import encrypt_sensitive_fields, is_encryption_available
-    from src.db import get_db
-
-    if not is_encryption_available():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ENCRYPTION_KEY not configured — cannot store sensitive data",
-        )
-
-    # Sync tushare token to os.environ (tushare loader reads from env)
-    tushare_key = (api_keys.get("tushare") or {}).get("key", "")
-    if tushare_key and tushare_key not in TUSHARE_TOKEN_PLACEHOLDERS:
-        os.environ["TUSHARE_TOKEN"] = tushare_key
-    else:
-        os.environ.pop("TUSHARE_TOKEN", None)
-
-    encrypted = encrypt_sensitive_fields(api_keys)
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE users SET api_keys = ?, updated_at = datetime('now') WHERE id = ?",
-            (json.dumps(encrypted, ensure_ascii=False), user_id),
-        )
-    return {"detail": "API keys updated"}
-
-
 @app.get("/api/user/settings/preferences")
 async def get_preferences(user_id: int = Depends(require_user)):
     from src.db import get_db
@@ -837,14 +758,20 @@ async def get_preferences(user_id: int = Depends(require_user)):
     return json.loads(row["preferences"]) if row and row["preferences"] else {}
 
 
+_MAX_JSON_SIZE = 64 * 1024  # 64 KB
+
+
 @app.put("/api/user/settings/preferences")
 async def update_preferences(preferences: Dict[str, Any], user_id: int = Depends(require_user)):
     from src.db import get_db
 
+    raw = json.dumps(preferences, ensure_ascii=False)
+    if len(raw) > _MAX_JSON_SIZE:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Payload too large")
     with get_db() as conn:
         conn.execute(
             "UPDATE users SET preferences = ?, updated_at = datetime('now') WHERE id = ?",
-            (json.dumps(preferences, ensure_ascii=False), user_id),
+            (raw, user_id),
         )
     return {"detail": "Preferences updated"}
 
@@ -870,6 +797,9 @@ async def update_settings(settings_data: Dict[str, Any], user_id: int = Depends(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ENCRYPTION_KEY not configured — cannot store sensitive data",
         )
+    raw = json.dumps(settings_data, ensure_ascii=False)
+    if len(raw) > _MAX_JSON_SIZE:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Payload too large")
     encrypted = encrypt_sensitive_fields(settings_data)
     with get_db() as conn:
         conn.execute(

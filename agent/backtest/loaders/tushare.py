@@ -16,6 +16,11 @@ from backtest.loaders.registry import register
 TUSHARE_TOKEN_PLACEHOLDERS = {"", "your-tushare-token"}
 
 
+def _get_tushare_token() -> str:
+    """Get tushare token from environment variable."""
+    return os.getenv("TUSHARE_TOKEN", "")
+
+
 @register
 class DataLoader:
     """Tushare-backed OHLCV loader."""

@@ -118,32 +118,34 @@ export function Tools() {
   const [tab, setTab] = useState<TabKey>("correlation");
 
   return (
-    <div className="p-6">
-      <div className="mb-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Tools</h1>
-        <p className="text-sm text-muted-foreground">Analysis and utility tools</p>
+    <div>
+      <div className="sticky top-0 z-10 bg-background border-b px-6 py-4">
+        <div className="mb-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Tools</h1>
+          <p className="text-sm text-muted-foreground">Analysis and utility tools</p>
+        </div>
+
+        <div className="flex gap-1 rounded-lg bg-muted p-1">
+          {TABS.map((key) => {
+            const meta = tabMeta[key];
+            const Icon = meta.icon;
+            return (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                  tab === key ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {meta.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="flex gap-1 rounded-lg bg-muted p-1">
-        {TABS.map((key) => {
-          const meta = tabMeta[key];
-          const Icon = meta.icon;
-          return (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                tab === key ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {meta.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="mt-4">
+      <div className="p-6 pt-4">
         {tab === "correlation" && <CorrelationPage />}
       </div>
     </div>
