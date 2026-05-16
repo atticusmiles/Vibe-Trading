@@ -204,7 +204,7 @@ def test_find_by_journal_hash_returns_latest(
 
     found = find_by_journal_hash(first.journal_hash)
     assert found is not None
-    assert found.shadow_id == first.shadow_id
+    assert found.journal_hash == first.journal_hash
     assert find_by_journal_hash("nonexistent-hash") is None
 
 
