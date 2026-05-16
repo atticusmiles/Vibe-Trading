@@ -46,7 +46,9 @@ test.describe("Settings page", () => {
     test("modify and save shows toast", async ({ page }) => {
       const select = page.locator("select").first();
       await expect(select).toBeVisible({ timeout: 15000 });
-      await select.selectOption({ index: 1 });
+      const current = await select.inputValue();
+      const target = current === "量化交易" ? "价值投资" : "量化交易";
+      await select.selectOption(target);
       await page.getByRole("button", { name: "Save" }).first().click();
       await expect(page.getByText("Preferences saved")).toBeVisible({ timeout: 10000 });
     });
@@ -55,7 +57,8 @@ test.describe("Settings page", () => {
       const select = page.locator("select").first();
       await expect(select).toBeVisible({ timeout: 15000 });
       const initialValue = await select.inputValue();
-      await select.selectOption({ index: 1 });
+      const target = initialValue === "量化交易" ? "价值投资" : "量化交易";
+      await select.selectOption(target);
       expect(await select.inputValue()).not.toBe(initialValue);
 
       await page.getByRole("button", { name: "Reset" }).first().click();
