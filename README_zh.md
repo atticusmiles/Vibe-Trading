@@ -322,22 +322,14 @@ npx clawhub@latest install vibe-trading --force
 
 ## 🧠 环境变量
 
-复制 `agent/.env.example` 到 `agent/.env`，取消注释你需要的提供商块。每个提供商需 3-4 个变量：
+复制 `agent/.env.example` 到 `agent/.env`，设置 LLM 连接参数：
 
 | Variable | Required | Description |
 |----------|:--------:|-------------|
-| `LANGCHAIN_PROVIDER` | Yes | 提供商名称（`openrouter`、`deepseek`、`groq`、`z.ai`、`ollama` 等） |
-| `<PROVIDER>_API_KEY` | Yes* | API key（`OPENROUTER_API_KEY`、`DEEPSEEK_API_KEY` 等） |
-| `<PROVIDER>_BASE_URL` | Yes | API 端点 URL |
-| `LANGCHAIN_MODEL_NAME` | Yes | 模型名（如 `deepseek/deepseek-v3.2`） |
+| `LLM_BASE_URL` | Yes | OpenAI 兼容 API 端点 URL |
+| `LLM_API_KEY` | Yes* | API key（*Ollama 不需要*） |
+| `LLM_MODEL_NAME` | Yes | 模型名（如 `deepseek/deepseek-v3.2`） |
 | `TUSHARE_TOKEN` | No | A 股数据的 Tushare Pro token（可回退 AKShare） |
-| `TIMEOUT_SECONDS` | No | LLM 调用超时，默认 120s |
-| `API_AUTH_KEY` | 网络部署建议设置 | API 可被非本地客户端访问时所需的 Bearer token |
-| `VIBE_TRADING_ENABLE_SHELL_TOOLS` | No | 远程 API / MCP-SSE 类部署显式启用 shell 能力工具 |
-| `VIBE_TRADING_ALLOWED_FILE_ROOTS` | No | 文档和券商交割单导入的额外逗号分隔目录 |
-| `VIBE_TRADING_ALLOWED_RUN_ROOTS` | No | 生成代码 run 目录的额外逗号分隔目录 |
-
-<sub>* Ollama 不需要 API key。</sub>
 
 **免费数据（无需 key）：** A 股经 AKShare，港美股经 yfinance，加密经 OKX，100+ 加密交易所经 CCXT。系统会为每个市场自动选择最佳可用数据源。
 

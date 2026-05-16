@@ -13,10 +13,23 @@ export class ApiError extends Error {
 }
 
 export const AUTH_REQUIRED_MESSAGE =
-  "Remote API access requires an API key. Add it in Settings, or run the backend on localhost for local-only use.";
+  "Authentication required. Please log in.";
 
 export function isAuthRequiredError(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+let _handling401 = false;
+
+function handle401(status: number) {
+  if (status === 401 && !_handling401) {
+    if (window.location.pathname === "/login") return;
+    _handling401 = true;
+    import("@/lib/apiAuth").then(({ clearApiAuthKey }) => {
+      clearApiAuthKey();
+      window.location.href = "/login";
+    });
+  }
 }
 
 async function errorFromResponse(res: Response): Promise<ApiError> {
@@ -44,10 +57,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers: mergedHeaders,
   });
   if (!res.ok) {
-    throw await errorFromResponse(res);
+    const err = await errorFromResponse(res);
+    handle401(err.status);
+    throw err;
   }
   const text = await res.text();
-  return text ? JSON.parse(text) : ({} as T);
+  try {
+    return text ? JSON.parse(text) : ({} as T);
+  } catch {
+    throw new ApiError(`Invalid JSON response from ${path}`, res.status);
+  }
 }
 
 export interface UploadResult {
@@ -61,13 +80,44 @@ async function uploadFile(file: File): Promise<UploadResult> {
   form.append("file", file);
   const res = await fetch(`${BASE}/upload`, { method: "POST", headers: authHeaders(), body: form });
   if (!res.ok) {
-    throw await errorFromResponse(res);
+    const err = await errorFromResponse(res);
+    handle401(err.status);
+    throw err;
   }
   return res.json();
 }
 
 export const api = {
+  // Auth
+  register: (username: string, password: string) =>
+    request<{ id: number; username: string; created_at: string }>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+  login: (username: string, password: string) =>
+    request<{ access_token: string; token_type: string; expires_in: number }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+  getMe: () =>
+    request<{ id: number; username: string; preferences: Record<string, unknown>; created_at: string }>("/auth/me"),
+  changePassword: (old_password: string, new_password: string) =>
+    request<{ detail: string }>("/auth/password", {
+      method: "PUT",
+      body: JSON.stringify({ old_password, new_password }),
+    }),
+
+  // User config
+  getPreferences: () => request<Record<string, unknown>>("/api/user/settings/preferences"),
+  updatePreferences: (prefs: Record<string, unknown>) =>
+    request<{ detail: string }>("/api/user/settings/preferences", { method: "PUT", body: JSON.stringify(prefs) }),
+  getSettings: () => request<Record<string, unknown>>("/api/user/settings/system"),
+  updateSettings: (settings: Record<string, unknown>) =>
+    request<{ detail: string }>("/api/user/settings/system", { method: "PUT", body: JSON.stringify(settings) }),
+
   uploadFile,
+  computeCorrelation: (codes: string, days: number, method: string) =>
+    request<{ labels: string[]; matrix: number[][] }>(`/correlation?codes=${encodeURIComponent(codes)}&days=${days}&method=${method}`),
   listRuns: () => request<RunListItem[]>("/runs"),
   getRun: (id: string) => request<RunData>(`/runs/${id}`),
   getRunCode: (id: string) => request<Record<string, string>>(`/runs/${id}/code`),
@@ -93,18 +143,6 @@ export const api = {
   swarmSseUrl: (id: string) => withAuthQuery(`${BASE}/swarm/runs/${id}/events`),
   cancelSwarmRun: (id: string) =>
     request<{ status: string }>(`/swarm/runs/${id}/cancel`, { method: "POST" }),
-  getLLMSettings: () => request<LLMSettings>("/settings/llm"),
-  updateLLMSettings: (settings: UpdateLLMSettingsRequest) =>
-    request<LLMSettings>("/settings/llm", {
-      method: "PUT",
-      body: JSON.stringify(settings),
-    }),
-  getDataSourceSettings: () => request<DataSourceSettings>("/settings/data-sources"),
-  updateDataSourceSettings: (settings: UpdateDataSourceSettingsRequest) =>
-    request<DataSourceSettings>("/settings/data-sources", {
-      method: "PUT",
-      body: JSON.stringify(settings),
-    }),
 };
 
 // --- Swarm types ---
@@ -124,60 +162,6 @@ export interface SwarmRunSummary {
   created_at: string;
   task_count: number;
   completed_count: number;
-}
-
-export interface LLMProviderOption {
-  name: string;
-  label: string;
-  api_key_env?: string | null;
-  base_url_env: string;
-  default_model: string;
-  default_base_url: string;
-  api_key_required: boolean;
-  auth_type?: string;
-  login_command?: string | null;
-}
-
-export interface LLMSettings {
-  provider: string;
-  model_name: string;
-  base_url: string;
-  api_key_env?: string | null;
-  api_key_configured: boolean;
-  api_key_hint?: string | null;
-  api_key_required: boolean;
-  temperature: number;
-  timeout_seconds: number;
-  max_retries: number;
-  reasoning_effort: string;
-  env_path: string;
-  providers: LLMProviderOption[];
-}
-
-export interface UpdateLLMSettingsRequest {
-  provider: string;
-  model_name: string;
-  base_url: string;
-  api_key?: string;
-  clear_api_key?: boolean;
-  temperature: number;
-  timeout_seconds: number;
-  max_retries: number;
-  reasoning_effort?: string;
-}
-
-export interface DataSourceSettings {
-  tushare_token_configured: boolean;
-  tushare_token_hint?: string | null;
-  baostock_supported: boolean;
-  baostock_installed: boolean;
-  baostock_message: string;
-  env_path: string;
-}
-
-export interface UpdateDataSourceSettingsRequest {
-  tushare_token?: string;
-  clear_tushare_token?: boolean;
 }
 
 // --- Types matching backend API contracts ---

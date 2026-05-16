@@ -16,6 +16,11 @@ from backtest.loaders.registry import register
 TUSHARE_TOKEN_PLACEHOLDERS = {"", "your-tushare-token"}
 
 
+def _get_tushare_token() -> str:
+    """Get tushare token from environment variable."""
+    return os.getenv("TUSHARE_TOKEN", "")
+
+
 @register
 class DataLoader:
     """Tushare-backed OHLCV loader."""
@@ -26,14 +31,13 @@ class DataLoader:
 
     def is_available(self) -> bool:
         """Available when TUSHARE_TOKEN is set."""
-        return os.getenv("TUSHARE_TOKEN", "").strip() not in TUSHARE_TOKEN_PLACEHOLDERS
+        return _get_tushare_token().strip() not in TUSHARE_TOKEN_PLACEHOLDERS
 
     def __init__(self) -> None:
         """Initialize Tushare pro API."""
         import tushare as ts
 
-        token = os.getenv("TUSHARE_TOKEN", "")
-        self.api = ts.pro_api(token)
+        self.api = ts.pro_api(_get_tushare_token())
 
     def fetch(
         self,

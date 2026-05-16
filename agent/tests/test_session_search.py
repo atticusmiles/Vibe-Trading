@@ -8,13 +8,17 @@ from pathlib import Path
 import pytest
 
 from src.session.search import SessionSearchIndex, SearchMatch
+from src.db import init_db
 
 
 @pytest.fixture()
-def index(tmp_path: Path) -> SessionSearchIndex:
+def index(tmp_path: Path, monkeypatch) -> SessionSearchIndex:
     """Create an ephemeral SessionSearchIndex backed by a tmp_path SQLite db."""
-    db_path = tmp_path / "test_sessions.db"
-    idx = SessionSearchIndex(db_path=db_path)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    from src.core import config
+    monkeypatch.setattr(config, "get_data_dir", lambda: tmp_path)
+    init_db()
+    idx = SessionSearchIndex()
     yield idx
     idx.close()
 

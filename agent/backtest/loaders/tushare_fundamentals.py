@@ -114,8 +114,9 @@ class TushareFundamentalProvider:
     def __init__(self, api: Any | None = None) -> None:
         if api is None:
             import tushare as ts
+            from backtest.loaders.tushare import _get_tushare_token
 
-            token = os.getenv("TUSHARE_TOKEN", "").strip()
+            token = _get_tushare_token().strip()
             if token in TUSHARE_TOKEN_PLACEHOLDERS:
                 token = ""
             api = ts.pro_api(token)

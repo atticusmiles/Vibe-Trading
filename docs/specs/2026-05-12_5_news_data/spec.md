@@ -6,7 +6,7 @@
 
 **与前后阶段的关系**：依赖阶段 2 的用户体系和阶段 4 的提案机制（舆情触发的投研会产出提案）。本阶段产出的数据源适配层和新闻简报是阶段 6（投研引擎）的数据输入。
 
-**前置条件**：阶段 2 完成，用户可配置 API Key。
+**前置条件**：阶段 2 完成，LLM 和数据源配置通过全局环境变量管理。
 
 ## 2. 数据模型
 
@@ -45,13 +45,11 @@ class DataSource(Protocol):
 | 宏观数据 | akshare | — |
 | 新闻搜索 | searxng（需配置地址） | — |
 
-优先使用主数据源，失败时自动降级到备用数据源。用户未配置 tushare token 时直接使用 akshare。
+优先使用主数据源，失败时自动降级到备用数据源。tushare token 通过环境变量 `TUSHARE_TOKEN` 配置，未配置时直接使用 akshare。
 
-### 3.3 用户数据源配置
+### 3.3 数据源环境变量配置
 
-从用户 `api_keys` JSON 中读取：
-- `tushare.key`：tushare token
-- `searxng.base_url`：搜索引擎地址
+- `TUSHARE_TOKEN`：tushare token（可选，未配置时使用 akshare 备用）
 - 未配置的自动跳过，使用备用数据源
 
 ## 4. 定时任务

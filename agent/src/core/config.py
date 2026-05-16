@@ -1,7 +1,7 @@
 """Centralised data directory configuration.
 
 All persistent data paths are derived from a single ``DATA_DIR`` environment
-variable.  Defaults to ``~/.vibe-trading`` for local development and is
+variable.  Defaults to ``<project_root>/run/`` for local development and is
 overridden to ``/data`` inside Docker containers.
 """
 
@@ -10,10 +10,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
 
 def get_data_dir() -> Path:
     """Return the unified data root, creating it if necessary."""
-    d = Path(os.environ.get("DATA_DIR", str(Path.home() / ".vibe-trading")))
+    d = Path(os.environ.get("DATA_DIR", str(_PROJECT_ROOT / "run")))
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -46,10 +48,6 @@ def get_memory_dir() -> Path:
     d = get_data_dir() / "memory"
     d.mkdir(parents=True, exist_ok=True)
     return d
-
-
-def get_session_db_path() -> Path:
-    return get_data_dir() / "sessions.db"
 
 
 def get_skills_dir() -> Path:

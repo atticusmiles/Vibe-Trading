@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -273,6 +274,7 @@ class TestNormalizeToolRunDir:
         out = _normalize_tool_run_dir(args, "/tmp/run_123")
         assert out["run_dir"] == str((Path("/tmp/run_123") / "risk_parity_run").resolve())
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="Unix-style absolute paths on Windows resolve to drive-relative paths")
     def test_preserves_absolute_run_dir(self) -> None:
         args = {"run_dir": "/var/tmp/custom_run"}
         out = _normalize_tool_run_dir(args, "/tmp/run_123")

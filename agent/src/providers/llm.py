@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -86,13 +87,13 @@ if ChatOpenAI is not None:
 else:
     ChatOpenAIWithReasoning = None  # type: ignore
 
-AGENT_DIR = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
-# .env search order: $DATA_DIR/.env → agent/.env → $CWD/.env
+# .env search order: $DATA_DIR/.env → project_root/.env → $CWD/.env
 from src.core.config import get_data_dir
 _ENV_CANDIDATES = [
     get_data_dir() / ".env",
-    AGENT_DIR / ".env",
+    PROJECT_ROOT / ".env",
     Path.cwd() / ".env",
 ]
 
@@ -126,106 +127,55 @@ def _ensure_dotenv() -> None:
     _dotenv_loaded = True
 
 
-def _sync_provider_env() -> None:
-    """Map provider-specific env vars to OPENAI_* for ChatOpenAI.
-
-    Each entry: provider_name -> (api_key_env, base_url_env).
-    All base URLs must be set explicitly in .env — no hardcoded defaults.
-    api_key_env=None means no key required (e.g. Ollama local).
-    """
-    _ensure_dotenv()
-    provider = os.getenv("LANGCHAIN_PROVIDER", "openai").lower()
-
-    if provider in {"openai-codex", "openai_codex"}:
-        codex_url = os.getenv("OPENAI_CODEX_BASE_URL", "https://chatgpt.com/backend-api/codex/responses")
-        os.environ["OPENAI_API_BASE"] = codex_url
-        os.environ["OPENAI_BASE_URL"] = codex_url
-        os.environ.pop("OPENAI_API_KEY", None)
-        return
-
-    # (api_key_env, base_url_env)
-    _PROVIDER_MAP: dict[str, tuple[str | None, str]] = {
-        "openai":     ("OPENAI_API_KEY",     "OPENAI_BASE_URL"),
-        "openrouter": ("OPENROUTER_API_KEY",  "OPENROUTER_BASE_URL"),
-        "deepseek":   ("DEEPSEEK_API_KEY",    "DEEPSEEK_BASE_URL"),
-        "gemini":     ("GEMINI_API_KEY",      "GEMINI_BASE_URL"),
-        "groq":       ("GROQ_API_KEY",        "GROQ_BASE_URL"),
-        "dashscope":  ("DASHSCOPE_API_KEY",   "DASHSCOPE_BASE_URL"),
-        "qwen":       ("DASHSCOPE_API_KEY",   "DASHSCOPE_BASE_URL"),
-        "zhipu":      ("ZHIPU_API_KEY",       "ZHIPU_BASE_URL"),
-        "moonshot":   ("MOONSHOT_API_KEY",    "MOONSHOT_BASE_URL"),
-        "minimax":    ("MINIMAX_API_KEY",     "MINIMAX_BASE_URL"),
-        "mimo":       ("MIMO_API_KEY",        "MIMO_BASE_URL"),
-        "zai":        ("ZAI_API_KEY",         "ZAI_BASE_URL"),
-        "ollama":     (None,                  "OLLAMA_BASE_URL"),
-    }
-
-    spec = _PROVIDER_MAP.get(provider, _PROVIDER_MAP["openai"])
-    key_env, base_env = spec
-
-    # Resolve API key: provider-specific env → OPENAI_API_KEY fallback
-    if key_env is not None:
-        api_key = os.getenv(key_env, "") or os.getenv("OPENAI_API_KEY", "")
-    else:
-        api_key = os.getenv("OPENAI_API_KEY", "") or "ollama"
-
-    # Resolve base URL: provider-specific env → OPENAI_BASE_URL fallback
-    base_url = os.getenv(base_env, "") or os.getenv("OPENAI_BASE_URL", "") or os.getenv("OPENAI_API_BASE", "")
-
-    if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
-    if base_url:
-        os.environ["OPENAI_API_BASE"] = base_url
-        os.environ.setdefault("OPENAI_BASE_URL", base_url)
-
-
 def build_llm(*, model_name: Optional[str] = None, callbacks: Any = None) -> Any:
-    """Construct a ChatOpenAI instance.
+    """Construct a ChatOpenAI instance from environment variables.
+
+    Reads LLM config from .env / os.environ (global config, not per-user).
+    Only three env vars needed: LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_NAME.
 
     Args:
-        model_name: Model name; defaults to LANGCHAIN_MODEL_NAME.
+        model_name: Model name override.
         callbacks: Optional LangChain callbacks.
 
     Returns:
         ChatOpenAI instance.
 
     Raises:
-        RuntimeError: If langchain-openai is missing or LANGCHAIN_MODEL_NAME is unset.
+        RuntimeError: If no LLM config found.
     """
-    _sync_provider_env()
-    name = model_name or os.getenv("LANGCHAIN_MODEL_NAME", "").strip()
-    if not name:
-        raise RuntimeError("LANGCHAIN_MODEL_NAME is not set")
-    temperature = float(os.getenv("LANGCHAIN_TEMPERATURE", "0.0"))
-    provider = os.getenv("LANGCHAIN_PROVIDER", "openai").lower()
-    if provider in {"openai-codex", "openai_codex"}:
-        from src.providers.openai_codex import OpenAICodexLLM
+    _ensure_dotenv()
 
-        effort = os.getenv("LANGCHAIN_REASONING_EFFORT", "").strip().lower()
-        return OpenAICodexLLM(
-            model=name,
-            temperature=temperature,
-            timeout=int(os.getenv("TIMEOUT_SECONDS", "120")),
-            reasoning_effort=effort or None,
-        )
+    name = model_name or os.getenv("LLM_MODEL_NAME", "")
+    if not name:
+        raise RuntimeError("Model name not configured (set LLM_MODEL_NAME in .env)")
+    api_key = os.getenv("LLM_API_KEY", "")
+    base_url = os.getenv("LLM_BASE_URL", "")
+    temperature = float(os.getenv("LLM_TEMPERATURE", "0.0"))
+    timeout = int(os.getenv("LLM_TIMEOUT", "120"))
+    max_retries = int(os.getenv("LLM_MAX_RETRIES", "2"))
+    effort = os.getenv("LLM_REASONING_EFFORT", "").strip().lower()
 
     if ChatOpenAI is None:
         raise RuntimeError("langchain-openai is not installed")
-    # MiniMax requires temperature in (0.0, 1.0] — clamp to 0.01 when the
-    # default 0.0 is used to avoid an API validation error.
-    if provider == "minimax" and temperature <= 0.0:
+
+    if temperature <= 0.0:
         temperature = 0.01
-    # Optional reasoning activation for relays requiring opt-in (e.g. OpenRouter).
-    # Moonshot/DeepSeek official APIs emit reasoning by default and ignore this field.
-    effort = os.getenv("LANGCHAIN_REASONING_EFFORT", "").strip().lower()
-    return ChatOpenAIWithReasoning(
+
+    kwargs: dict[str, Any] = dict(
         model=name,
         temperature=temperature,
-        timeout=int(os.getenv("TIMEOUT_SECONDS", "120")),
-        max_retries=int(os.getenv("MAX_RETRIES", "2")),
+        timeout=timeout,
+        max_retries=max_retries,
         callbacks=callbacks,
-        extra_body={"reasoning": {"effort": effort}} if effort else None,
     )
+    if api_key:
+        kwargs["api_key"] = api_key
+    if base_url:
+        kwargs["base_url"] = base_url
+    if effort:
+        kwargs["extra_body"] = {"reasoning": {"effort": effort}}
+
+    return ChatOpenAIWithReasoning(**kwargs)
 
 
 def _extract_balanced_json(text: str) -> Optional[Dict[str, Any]]:

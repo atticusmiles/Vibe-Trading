@@ -324,22 +324,14 @@ npx clawhub@latest install vibe-trading --force
 
 ## 🧠 متغيرات البيئة
 
-انسخ `agent/.env.example` إلى `agent/.env` وأزل التعليق عن كتلة المزود التي تريدها. كل مزود يحتاج إلى 3-4 متغيرات:
+انسخ `agent/.env.example` إلى `agent/.env` واضبط معلمات اتصال LLM:
 
 | المتغير | مطلوب | الوصف |
 |----------|:--------:|-------------|
-| `LANGCHAIN_PROVIDER` | نعم | اسم المزود (`openrouter`, `deepseek`, `groq`, `z.ai`, `ollama`, إلخ) |
-| `<PROVIDER>_API_KEY` | نعم* | مفتاح API (`OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, إلخ) |
-| `<PROVIDER>_BASE_URL` | نعم | رابط نقطة نهاية API |
-| `LANGCHAIN_MODEL_NAME` | نعم | اسم النموذج (مثلاً `deepseek/deepseek-v3.2`) |
+| `LLM_BASE_URL` | نعم | رابط نقطة نهاية API متوافقة مع OpenAI |
+| `LLM_API_KEY` | نعم* | مفتاح API (*Ollama لا يتطلب*) |
+| `LLM_MODEL_NAME` | نعم | اسم النموذج (مثلاً `deepseek/deepseek-v3.2`) |
 | `TUSHARE_TOKEN` | لا | رمز Tushare Pro لبيانات أسهم A (بديل AKShare) |
-| `TIMEOUT_SECONDS` | لا | مهلة استدعاء نموذج اللغة، الافتراضي 120 ثانية |
-| `API_AUTH_KEY` | موصى به للنشر الشبكي | Bearer token مطلوب عندما يكون الـ API قابلاً للوصول من عملاء غير محليين |
-| `VIBE_TRADING_ENABLE_SHELL_TOOLS` | لا | تفعيل صريح لأدوات shell في نشر API / MCP-SSE البعيد |
-| `VIBE_TRADING_ALLOWED_FILE_ROOTS` | لا | جذور إضافية مفصولة بفواصل لاستيراد المستندات وسجلات الوسطاء |
-| `VIBE_TRADING_ALLOWED_RUN_ROOTS` | لا | جذور إضافية مفصولة بفواصل لأدلة تشغيل الكود المولد |
-
-<sub>* Ollama لا يتطلب مفتاح API.</sub>
 
 **بيانات مجانية (بدون مفتاح):** أسهم A عبر AKShare، أسهم HK/US عبر yfinance، العملات المشفرة عبر OKX، 100+ بورصة عملات مشفرة عبر CCXT. يختار النظام تلقائياً أفضل مصدر متاح لكل سوق.
 

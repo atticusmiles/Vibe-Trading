@@ -36,7 +36,7 @@ for _s in ("stdout", "stderr"):
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, IntPrompt, Prompt
+from rich.prompt import Confirm, Prompt
 from rich.syntax import Syntax
 from rich.table import Table
 
@@ -96,10 +96,10 @@ def _build_status_parts(stats: _SessionStats) -> list[str]:
     Returns:
         List of status text segments.
     """
-    provider = os.getenv("LANGCHAIN_PROVIDER", "")
-    model = os.getenv("LANGCHAIN_MODEL_NAME", "")
+    provider = os.getenv("LLM_BASE_URL", "")
+    model = os.getenv("LLM_MODEL_NAME", "")
     model_short = model.split("/")[-1] if "/" in model else model
-    label = f"{provider}/{model_short}" if provider else model_short or "unknown"
+    label = f"{model_short}" if model_short else "unknown"
 
     session_s = int(time.monotonic() - stats.session_start)
     mins, secs = divmod(session_s, 60)
@@ -699,10 +699,10 @@ def _show_settings() -> None:
     table.add_column("Value")
 
     settings = {
-        "Provider": os.getenv("LANGCHAIN_PROVIDER", "(not set)"),
-        "Model": os.getenv("LANGCHAIN_MODEL_NAME", "(not set)"),
-        "Temperature": os.getenv("LANGCHAIN_TEMPERATURE", "0.0"),
-        "Timeout": os.getenv("TIMEOUT_SECONDS", "2400") + "s",
+        "Base URL": os.getenv("LLM_BASE_URL", "(not set)"),
+        "Model": os.getenv("LLM_MODEL_NAME", "(not set)"),
+        "Temperature": os.getenv("LLM_TEMPERATURE", "0.0"),
+        "Timeout": os.getenv("LLM_TIMEOUT", "120") + "s",
         "Tushare Token": "***" if os.getenv("TUSHARE_TOKEN") else "(not set)",
     }
     for k, v in settings.items():
@@ -1720,28 +1720,6 @@ def cmd_upload(file_path: str) -> None:
     console.print(f"[green]Uploaded:[/green] {dest}")
 
 
-def cmd_provider_login(provider: str) -> int:
-    """Authenticate OAuth-backed LLM providers."""
-    normalized = provider.strip().lower().replace("_", "-")
-    if normalized != "openai-codex":
-        console.print("[red]Unknown OAuth provider.[/red] Supported: openai-codex")
-        return EXIT_USAGE_ERROR
-    try:
-        from src.providers.openai_codex import login_openai_codex
-
-        console.print("[cyan]Starting OpenAI Codex OAuth login...[/cyan]\n")
-        token = login_openai_codex(
-            print_fn=lambda text: console.print(text),
-            prompt_fn=lambda text: Prompt.ask(text),
-        )
-        account = getattr(token, "account_id", None) or "ChatGPT"
-        console.print(f"[green]Authenticated with OpenAI Codex[/green]  [dim]{account}[/dim]")
-        return EXIT_SUCCESS
-    except Exception as exc:
-        console.print(f"[red]Authentication error:[/red] {exc}")
-        return EXIT_RUN_FAILED
-
-
 # ---------------------------------------------------------------------------
 # CLI entrypoint
 # ---------------------------------------------------------------------------
@@ -1789,11 +1767,6 @@ def _build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--port", type=int, default=8000, help="Listen port")
     serve_parser.add_argument("--dev", action="store_true", help="Start the Vite dev server")
 
-    provider_parser = subparsers.add_parser("provider", help="Manage OAuth providers")
-    provider_subparsers = provider_parser.add_subparsers(dest="provider_command")
-    login_parser = provider_subparsers.add_parser("login", help="Authenticate with an OAuth provider")
-    login_parser.add_argument("provider", help="OAuth provider name, e.g. openai-codex")
-
     list_parser = subparsers.add_parser("list", help="List runs")
     list_parser.add_argument("--limit", dest="list_limit", type=int, default=20, help="Maximum number of runs")
 
@@ -1834,182 +1807,18 @@ def _handle_prompt_command(
     return cmd_run(resolved_prompt, max_iter, json_mode=json_mode, no_rich=no_rich)
 
 
-_INIT_ENV_PATH = AGENT_DIR / ".env"
-
-_PROVIDER_CHOICES: list[dict[str, str | None]] = [
-    {
-        "label": "OpenRouter (recommended - multiple models)",
-        "provider": "openrouter",
-        "key_env": "OPENROUTER_API_KEY",
-        "base_env": "OPENROUTER_BASE_URL",
-        "base_url": "https://openrouter.ai/api/v1",
-        "model": "deepseek/deepseek-v3.2",
-        "key_prefix": "sk-or-",
-        "key_placeholder": "sk-or-v1-...",
-    },
-    {
-        "label": "DeepSeek",
-        "provider": "deepseek",
-        "key_env": "DEEPSEEK_API_KEY",
-        "base_env": "DEEPSEEK_BASE_URL",
-        "base_url": "https://api.deepseek.com/v1",
-        "model": "deepseek-chat",
-        "key_prefix": "sk-",
-        "key_placeholder": "sk-...",
-    },
-    {
-        "label": "OpenAI",
-        "provider": "openai",
-        "key_env": "OPENAI_API_KEY",
-        "base_env": "OPENAI_BASE_URL",
-        "base_url": "https://api.openai.com/v1",
-        "model": "gpt-4o",
-        "key_prefix": "sk-",
-        "key_placeholder": "sk-...",
-    },
-    {
-        "label": "Gemini",
-        "provider": "gemini",
-        "key_env": "GEMINI_API_KEY",
-        "base_env": "GEMINI_BASE_URL",
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "model": "gemini-2.5-flash",
-        "key_prefix": None,
-        "key_placeholder": "api-key...",
-    },
-    {
-        "label": "Groq",
-        "provider": "groq",
-        "key_env": "GROQ_API_KEY",
-        "base_env": "GROQ_BASE_URL",
-        "base_url": "https://api.groq.com/openai/v1",
-        "model": "llama-3.3-70b-versatile",
-        "key_prefix": "gsk_",
-        "key_placeholder": "gsk_...",
-    },
-    {
-        "label": "DashScope / Qwen",
-        "provider": "dashscope",
-        "key_env": "DASHSCOPE_API_KEY",
-        "base_env": "DASHSCOPE_BASE_URL",
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "model": "qwen-plus",
-        "key_prefix": "sk-",
-        "key_placeholder": "sk-...",
-    },
-    {
-        "label": "Zhipu",
-        "provider": "zhipu",
-        "key_env": "ZHIPU_API_KEY",
-        "base_env": "ZHIPU_BASE_URL",
-        "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "model": "glm-4-plus",
-        "key_prefix": None,
-        "key_placeholder": "api-key...",
-    },
-    {
-        "label": "Moonshot / Kimi",
-        "provider": "moonshot",
-        "key_env": "MOONSHOT_API_KEY",
-        "base_env": "MOONSHOT_BASE_URL",
-        "base_url": "https://api.moonshot.ai/v1",
-        "model": "kimi-k2.5",
-        "key_prefix": "sk-",
-        "key_placeholder": "sk-...",
-    },
-    {
-        "label": "MiniMax",
-        "provider": "minimax",
-        "key_env": "MINIMAX_API_KEY",
-        "base_env": "MINIMAX_BASE_URL",
-        "base_url": "https://api.minimax.io/v1",
-        "model": "MiniMax-Text-01",
-        "key_prefix": None,
-        "key_placeholder": "api-key...",
-    },
-    {
-        "label": "Xiaomi MIMO",
-        "provider": "mimo",
-        "key_env": "MIMO_API_KEY",
-        "base_env": "MIMO_BASE_URL",
-        "base_url": "https://api.xiaomimimo.com/v1",
-        "model": "MiMo-72B-A27B",
-        "key_prefix": None,
-        "key_placeholder": "api-key...",
-    },
-    {
-        "label": "Z.ai (Coding platform)",
-        "provider": "zai",
-        "key_env": "ZAI_API_KEY",
-        "base_env": "ZAI_BASE_URL",
-        "base_url": "https://api.z.ai/api/coding/paas/v4",
-        "model": "glm-5.1",
-        "key_prefix": None,
-        "key_placeholder": "api-key...",
-    },
-    {
-        "label": "Ollama (local, free)",
-        "provider": "ollama",
-        "key_env": None,
-        "base_env": "OLLAMA_BASE_URL",
-        "base_url": "http://localhost:11434/v1",
-        "model": "qwen2.5:32b",
-        "key_prefix": None,
-        "key_placeholder": None,
-    },
-    {
-        "label": "OpenAI Codex (ChatGPT OAuth)",
-        "provider": "openai-codex",
-        "key_env": None,
-        "base_env": "OPENAI_CODEX_BASE_URL",
-        "base_url": "https://chatgpt.com/backend-api/codex/responses",
-        "model": "openai-codex/gpt-5.3-codex",
-        "key_prefix": None,
-        "key_placeholder": None,
-    },
-]
-
-
-def _validate_api_key(api_key: str, expected_prefix: str | None) -> bool:
-    """Basic API-key format validation used during interactive setup."""
-    if expected_prefix is None:
-        return True
-    return api_key.startswith(expected_prefix)
-
+_INIT_ENV_PATH = AGENT_DIR.parent / ".env"
 
 def _render_env_content(config: dict[str, str]) -> str:
     """Render .env content with stable ordering."""
     ordered_keys = [
-        "LANGCHAIN_TEMPERATURE",
-        "LANGCHAIN_PROVIDER",
-        "OPENROUTER_API_KEY",
-        "OPENROUTER_BASE_URL",
-        "DEEPSEEK_API_KEY",
-        "DEEPSEEK_BASE_URL",
-        "OPENAI_API_KEY",
-        "OPENAI_BASE_URL",
-        "OPENAI_CODEX_BASE_URL",
-        "GEMINI_API_KEY",
-        "GEMINI_BASE_URL",
-        "GROQ_API_KEY",
-        "GROQ_BASE_URL",
-        "DASHSCOPE_API_KEY",
-        "DASHSCOPE_BASE_URL",
-        "ZHIPU_API_KEY",
-        "ZHIPU_BASE_URL",
-        "MOONSHOT_API_KEY",
-        "MOONSHOT_BASE_URL",
-        "MINIMAX_API_KEY",
-        "MINIMAX_BASE_URL",
-        "MIMO_API_KEY",
-        "MIMO_BASE_URL",
-        "ZAI_API_KEY",
-        "ZAI_BASE_URL",
-        "OLLAMA_BASE_URL",
-        "LANGCHAIN_MODEL_NAME",
+        "LLM_BASE_URL",
+        "LLM_API_KEY",
+        "LLM_MODEL_NAME",
+        "LLM_TEMPERATURE",
+        "LLM_TIMEOUT",
+        "LLM_MAX_RETRIES",
         "TUSHARE_TOKEN",
-        "TIMEOUT_SECONDS",
-        "MAX_RETRIES",
     ]
     lines: list[str] = []
     for key in ordered_keys:
@@ -2020,7 +1829,7 @@ def _render_env_content(config: dict[str, str]) -> str:
 
 
 def cmd_init() -> int:
-    """Interactive setup: create agent/.env."""
+    """Interactive setup: create .env in project root."""
     console.print("[bold cyan]Welcome to Vibe-Trading setup![/bold cyan]\n")
 
     if _INIT_ENV_PATH.exists():
@@ -2029,68 +1838,39 @@ def cmd_init() -> int:
             console.print("[dim]Aborted.[/dim]")
             return 0
 
-    console.print("Select your LLM provider:")
-    for idx, option in enumerate(_PROVIDER_CHOICES, start=1):
-        console.print(f"  {idx}. {option['label']}")
+    console.print("Configure your LLM provider (OpenAI-compatible API):")
 
-    choice = IntPrompt.ask(
-        "Provider",
-        choices=[str(i) for i in range(1, len(_PROVIDER_CHOICES) + 1)],
-        default=1,
-        show_choices=False,
-    )
-    selected = _PROVIDER_CHOICES[choice - 1]
+    base_url = Prompt.ask(
+        "LLM Base URL",
+        default="https://openrouter.ai/api/v1",
+        show_default=True,
+    ).strip()
 
-    provider = str(selected["provider"])
-    key_env = selected["key_env"]
-    base_env = str(selected["base_env"])
-    default_base_url = str(selected["base_url"])
-    default_model = str(selected["model"])
-    key_prefix = selected["key_prefix"]
-    key_placeholder = selected["key_placeholder"]
+    api_key = Prompt.ask(
+        "API Key",
+        default="",
+        show_default=False,
+        password=True,
+    ).strip()
+
+    model = Prompt.ask(
+        "Model name",
+        default="deepseek/deepseek-v3.2",
+        show_default=True,
+    ).strip()
 
     env_values: dict[str, str] = {
-        "LANGCHAIN_TEMPERATURE": "0.0",
-        "LANGCHAIN_PROVIDER": provider,
-        "LANGCHAIN_MODEL_NAME": default_model,
-        "TIMEOUT_SECONDS": "120",
-        "MAX_RETRIES": "2",
+        "LLM_BASE_URL": base_url,
+        "LLM_MODEL_NAME": model,
+        "LLM_TEMPERATURE": "0.0",
+        "LLM_TIMEOUT": "120",
+        "LLM_MAX_RETRIES": "2",
     }
-
-    if key_env is not None:
-        while True:
-            api_key = Prompt.ask(
-                f"Enter your {provider.capitalize()} API key",
-                default=str(key_placeholder),
-                password=True,
-                show_default=False,
-            ).strip()
-            if _validate_api_key(api_key, str(key_prefix) if key_prefix is not None else None):
-                env_values[str(key_env)] = api_key
-                break
-            console.print(
-                f"[red]That key doesn't look right.[/red] Expected it to start with [bold]{key_prefix}[/bold]."
-            )
-    elif provider == "openai-codex":
-        console.print("[dim]OpenAI Codex uses ChatGPT OAuth, not an API key.[/dim]")
-        console.print("[dim]After setup, run: vibe-trading provider login openai-codex[/dim]")
-    else:
-        console.print("[dim]Ollama does not require an API key.[/dim]")
-
-    env_values[base_env] = Prompt.ask(
-        "Base URL",
-        default=default_base_url,
-        show_default=True,
-    ).strip()
-
-    env_values["LANGCHAIN_MODEL_NAME"] = Prompt.ask(
-        "Select default model",
-        default=default_model,
-        show_default=True,
-    ).strip()
+    if api_key:
+        env_values["LLM_API_KEY"] = api_key
 
     tushare_token = Prompt.ask(
-        "(Optional) Enter Tushare token for China A-share data",
+        "(Optional) Tushare token for China A-share data",
         default="",
         show_default=False,
     ).strip()
@@ -2117,11 +1897,6 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_init()
     if args.command == "serve":
         return serve_main(raw_argv[1:])
-    if args.command == "provider":
-        if args.provider_command == "login":
-            return cmd_provider_login(args.provider)
-        console.print("[red]provider requires a subcommand.[/red] Try: vibe-trading provider login openai-codex")
-        return EXIT_USAGE_ERROR
     if args.command == "run":
         return _handle_prompt_command(
             args.run_prompt,

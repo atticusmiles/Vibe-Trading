@@ -32,10 +32,6 @@ data/.duckdb_tmp/
 data/parquet/
 data/backup/
 
-# Internal docs (plans, specs)
-docs/*
-!docs/specs/
-!docs/specs/**
 data/minutes/
 data/overnight*.log
 data/*.log
@@ -53,14 +49,12 @@ assets/*.mp4
 # Local demo / promo production workspace
 demo/
 
-# Manual E2E smoke tests — require live API keys (OpenRouter / yfinance),
-# would break CI if committed. Kept local; run explicitly when validating
-# a release.
-agent/tests/e2e_*.py
-agent/tests/test_e2e_*.py
 
 # Local working notes
 NOTES.md
 
 # Agent tool aliases (auto-generated mirror of CLAUDE.md)
 AGENTS.md
+
+# Local runtime data (vibe.db, sessions, runs, uploads, etc.)
+run/

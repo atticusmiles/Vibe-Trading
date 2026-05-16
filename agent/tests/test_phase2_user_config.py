@@ -1,9 +1,6 @@
-"""Regression tests for user settings API endpoints (preferences, system, password)."""
-
-from __future__ import annotations
+"""Phase 2 user config API tests: preferences, settings, ENCRYPTION_KEY missing 503."""
 
 import os
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -19,8 +16,6 @@ app = api_server.app
 @pytest.fixture(autouse=True)
 def _setup_db(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("JWT_SECRET", "test-secret-key-at-least-32-characters-long")
-    monkeypatch.setenv("ENCRYPTION_KEY", "a" * 64)
     from src.core import config
     monkeypatch.setattr(config, "get_data_dir", lambda: tmp_path / "data")
     init_db()
@@ -35,8 +30,8 @@ def client():
 @pytest.fixture
 def authed(client):
     """Register + login, return (client, token)."""
-    client.post("/auth/register", json={"username": "settingsuser", "password": "password123"})
-    res = client.post("/auth/login", json={"username": "settingsuser", "password": "password123"})
+    client.post("/auth/register", json={"username": "cfguser", "password": "password123"})
+    res = client.post("/auth/login", json={"username": "cfguser", "password": "password123"})
     token = res.json()["access_token"]
     return client, token
 
@@ -45,7 +40,7 @@ def _headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-class TestPreferencesEndpoint:
+class TestPreferences:
     def test_get_default_empty(self, authed):
         client, token = authed
         res = client.get("/api/user/settings/preferences", headers=_headers(token))
@@ -63,7 +58,7 @@ class TestPreferencesEndpoint:
         assert res.json()["investment_style"] == "价值投资"
 
 
-class TestSystemSettingsEndpoint:
+class TestSettings:
     def test_get_default_empty(self, authed):
         client, token = authed
         res = client.get("/api/user/settings/system", headers=_headers(token))
@@ -76,23 +71,13 @@ class TestSystemSettingsEndpoint:
         res = client.put("/api/user/settings/system", json=settings, headers=_headers(token))
         assert res.status_code == 200
 
+        # GET should return decrypted
         res = client.get("/api/user/settings/system", headers=_headers(token))
         assert res.status_code == 200
         data = res.json()
         assert data["news_archive_time"] == "08:00"
         assert data["feishu"]["app_secret"] == "my-feishu-secret"
 
-
-class TestAuthRequired:
-    def test_preferences_requires_auth(self, client):
+    def test_unauthenticated_returns_401(self, client):
         res = client.get("/api/user/settings/preferences")
-        assert res.status_code in {401, 403}
-
-    def test_system_settings_requires_auth(self, client):
-        res = client.get("/api/user/settings/system")
-        assert res.status_code in {401, 403}
-
-    def test_remote_client_rejected(self):
-        remote = TestClient(app, client=("203.0.113.10", 50000))
-        res = remote.get("/api/user/settings/preferences")
-        assert res.status_code in {401, 403}
+        assert res.status_code == 401

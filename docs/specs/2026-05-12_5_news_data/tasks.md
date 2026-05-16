@@ -13,7 +13,7 @@
 - [ ] 实现 akshare 适配器（行情 + 宏观数据）
 - [ ] 实现 searxng 适配器（新闻搜索）
 - [ ] 实现 DataSourceManager：根据用户配置选择数据源，支持降级回退
-- [ ] 数据源读取用户 api_keys JSON 中的配置（tushare token、searxng 地址）
+- [ ] 数据源读取全局环境变量中的配置（TUSHARE_TOKEN、searxng 地址等）
 
 ## APScheduler 集成
 
@@ -21,7 +21,7 @@
 - [ ] 集成 AsyncIOScheduler 到 FastAPI lifespan
 - [ ] 调度信息持久化到 vibe.db
 - [ ] 实现 scheduler 启动时为每个用户注册定时任务
-- [ ] 实现定时任务的用户隔离（使用各自的 API Key）
+- [ ] 实现定时任务的用户隔离
 
 ## 每日新闻存档
 
