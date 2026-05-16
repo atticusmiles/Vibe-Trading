@@ -39,6 +39,7 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GHCR_PAT }}
           GHCR_USER: ${{ github.actor }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           DEPLOY_TAG: ${{ inputs.image_tag }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -54,7 +55,7 @@ jobs:
           host: ${{ vars.HOST }}
           username: ${{ vars.SSH_USER || 'deploy' }}
           password: ${{ secrets.SSH_PASSWORD }}
-          envs: GH_PAT,GHCR_USER,DEPLOY_TAG,OPENROUTER_API_KEY,OPENAI_API_KEY,DEEPSEEK_API_KEY,GEMINI_API_KEY,ZAI_API_KEY,ZHIPU_API_KEY,TUSHARE_TOKEN,ENCRYPTION_KEY,JWT_SECRET,API_AUTH_KEY
+          envs: GH_PAT,GHCR_USER,IMAGE,DEPLOY_TAG,OPENROUTER_API_KEY,OPENAI_API_KEY,DEEPSEEK_API_KEY,GEMINI_API_KEY,ZAI_API_KEY,ZHIPU_API_KEY,TUSHARE_TOKEN,ENCRYPTION_KEY,JWT_SECRET,API_AUTH_KEY
           script: |
             set -euo pipefail
 
@@ -71,10 +72,10 @@ jobs:
             cd "$COMPOSE_DIR"
 
             # Write docker-compose.yml
-            cat > docker-compose.yml <<'DCEOF'
+            cat > docker-compose.yml <<DCEOF
             services:
               vibe-trading:
-                image: ghcr.io/atticusmiles/vibe-trading:${TAG:-develop}
+                image: $IMAGE:\${TAG:-develop}
                 ports:
                   - "127.0.0.1:8899:8899"
                 environment:
@@ -91,13 +92,18 @@ jobs:
 
             # Fetch environment variables from GitHub API
             REPO_API="https://api.github.com/repos/atticusmiles/vibe-trading"
-            curl -sL \
+            HTTP_CODE=$(curl -sL -w "%{http_code}" -o /tmp/vars.json \
               -H "Authorization: token $GH_PAT" \
               -H "Accept: application/vnd.github.v3+json" \
-              "$REPO_API/environments/Production/variables?per_page=100" \
-              | python3 -c "
+              "$REPO_API/environments/Production/variables?per_page=100")
+            if [ "$HTTP_CODE" -ne 200 ]; then
+              echo "ERROR: GitHub API returned HTTP $HTTP_CODE"
+              cat /tmp/vars.json
+              exit 1
+            fi
+            python3 -c "
             import sys, json
-            data = json.load(sys.stdin)
+            data = json.load(open('/tmp/vars.json'))
             skip = {'HOST', 'SSH_USER', 'DEPLOY_PATH'}
             for v in data.get('variables', []):
                 if v['name'] not in skip:

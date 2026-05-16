@@ -1,7 +1,7 @@
 services:
   vibe-trading:
     build: .
-    image: ghcr.io/hkuds/vibe-trading:${TAG:-develop}
+    image: ghcr.io/atticusmiles/vibe-trading:${TAG:-develop}
     ports:
       - "127.0.0.1:8899:8899"
     environment:
