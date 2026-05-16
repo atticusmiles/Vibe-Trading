@@ -234,6 +234,39 @@ jobs:
             echo "ERROR: Health check failed after 60s"
             exit 1
 
+  e2e-uat:
+    needs: deploy-uat
+    runs-on: ubuntu-latest
+    environment: UAT
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Playwright
+        run: cd e2e && npm ci && npx playwright install --with-deps chromium
+
+      - name: Run E2E tests via SSH tunnel
+        env:
+          E2E_BASE_URL: http://127.0.0.1:8899
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          sudo apt-get install -y sshpass
+          sshpass -e ssh -f -N -L 8899:127.0.0.1:8899 \
+            -o StrictHostKeyChecking=no \
+            ${{ vars.SSH_USER || 'deploy' }}@${{ vars.HOST }} &
+          sleep 2
+          cd e2e && npx playwright test --reporter=github
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-uat
+          path: e2e/playwright-report/
+
   retag-release:
     needs: [lint, test, frontend]
     runs-on: ubuntu-latest
