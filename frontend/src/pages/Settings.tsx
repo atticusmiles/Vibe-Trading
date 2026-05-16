@@ -97,6 +97,18 @@ function useActiveSection(ids: string[]) {
   return active;
 }
 
+function useCtrlS(handler: () => void) {
+  const ref = useRef(handler);
+  ref.current = handler;
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); ref.current(); }
+    };
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
+}
+
 // ===== Save / Reset buttons for right-side nav =====
 function ActionBar({ saving, onSave, onReset }: { saving: boolean; onSave: () => void; onReset: () => void }) {
   return (
@@ -189,11 +201,7 @@ function LLMDataPage() {
     setClearTushare(false);
   };
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); } };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  });
+  useCtrlS(save);
 
   if (loading) return <div className="flex items-center gap-2 p-12 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> Loading...</div>;
 
@@ -315,7 +323,7 @@ function PreferencesPage() {
 
   useEffect(() => {
     api.getPreferences()
-      .then((d) => { setData(d); setSnapshot(d); })
+      .then((d) => { setData(d); setSnapshot(JSON.parse(JSON.stringify(d))); })
       .catch((err) => toast.error(err.message))
       .finally(() => setLoading(false));
   }, []);
@@ -324,7 +332,7 @@ function PreferencesPage() {
     setSaving(true);
     try {
       await api.updatePreferences(data);
-      setSnapshot({ ...data });
+      setSnapshot(JSON.parse(JSON.stringify(data)));
       toast.success("Preferences saved");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Save failed");
@@ -335,11 +343,7 @@ function PreferencesPage() {
 
   const reset = () => setData({ ...snapshot });
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); } };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  });
+  useCtrlS(save);
 
   function toggleArray(field: string, value: string) {
     const arr: string[] = data[field] || [];
@@ -491,7 +495,7 @@ function SystemPage() {
 
   useEffect(() => {
     api.getSettings()
-      .then((d) => { setData(d); setSnapshot(d); })
+      .then((d) => { setData(d); setSnapshot(JSON.parse(JSON.stringify(d))); })
       .catch((err) => toast.error(err.message))
       .finally(() => setLoading(false));
   }, []);
@@ -500,7 +504,7 @@ function SystemPage() {
     setSaving(true);
     try {
       await api.updateSettings(data);
-      setSnapshot({ ...data });
+      setSnapshot(JSON.parse(JSON.stringify(data)));
       toast.success("Settings saved");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Save failed");
@@ -511,11 +515,7 @@ function SystemPage() {
 
   const reset = () => setData({ ...snapshot });
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); } };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  });
+  useCtrlS(save);
 
   if (loading) return <div className="flex items-center gap-2 p-12 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> Loading...</div>;
 

@@ -16,6 +16,8 @@ def _get_jwt_secret() -> str:
     secret = os.environ.get("JWT_SECRET", "").strip()
     if not secret:
         raise RuntimeError("JWT_SECRET environment variable is not set")
+    if len(secret) < 32:
+        raise RuntimeError("JWT_SECRET must be at least 32 characters")
     return secret
 
 
@@ -24,7 +26,10 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
 
 
 def create_token(user_id: int) -> str:

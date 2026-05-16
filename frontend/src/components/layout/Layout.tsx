@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { BarChart3, Bot, LogOut, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Wrench } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { useDarkMode } from "@/hooks/useDarkMode";
@@ -37,7 +38,7 @@ export function Layout() {
   const loadSessions = () => {
     api.listSessions()
       .then((list) => setSessions(Array.isArray(list) ? list : []))
-      .catch(() => {})
+      .catch((err) => { if (err?.status === 401) return; /* auth handled globally */ })
       .finally(() => setSessionsLoading(false));
   };
 
@@ -54,7 +55,7 @@ export function Layout() {
     try {
       await api.deleteSession(sid);
       setSessions((prev) => prev.filter((s) => s.session_id !== sid));
-    } catch { /* ignore */ }
+    } catch (err) { toast.error("Failed to delete session"); }
     setDeleteTarget(null);
   };
 
@@ -63,7 +64,7 @@ export function Layout() {
     try {
       await api.renameSession(sid, renameValue.trim());
       setSessions((prev) => prev.map((s) => s.session_id === sid ? { ...s, title: renameValue.trim() } : s));
-    } catch { /* ignore */ }
+    } catch { toast.error("Failed to rename session"); }
     setRenameTarget(null);
   };
 

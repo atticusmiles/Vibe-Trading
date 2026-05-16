@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 
@@ -15,17 +16,27 @@ logger = logging.getLogger(__name__)
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
+_DOCKER_BRIDGE = ipaddress.ip_network("172.16.0.0/12")
+
 
 def _is_local_client(request: Request) -> bool:
     client_host = request.client.host if request.client else "unknown"
     if client_host in ("127.0.0.1", "::1", "localhost", "testclient"):
         return True
-    if client_host.startswith("127."):
-        return True
+    try:
+        if ipaddress.ip_address(client_host).is_loopback:
+            return True
+    except ValueError:
+        pass
     if os.environ.get("VIBE_TRADING_TRUST_DOCKER_LOOPBACK"):
         forwarded = request.headers.get("x-forwarded-for", "")
-        if forwarded and forwarded.startswith(("127.", "172.")):
-            return True
+        if forwarded:
+            try:
+                ip = ipaddress.ip_address(forwarded.split(",")[0].strip())
+                if ip.is_loopback or ip in _DOCKER_BRIDGE:
+                    return True
+            except ValueError:
+                pass
     return False
 
 

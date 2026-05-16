@@ -21,6 +21,7 @@ export function isAuthRequiredError(error: unknown): boolean {
 
 function handle401(status: number) {
   if (status === 401) {
+    if (window.location.pathname === "/login") return;
     import("@/lib/apiAuth").then(({ clearApiAuthKey }) => {
       clearApiAuthKey();
       window.location.href = "/login";
@@ -109,6 +110,8 @@ export const api = {
     request<{ detail: string }>("/api/user/settings/system", { method: "PUT", body: JSON.stringify(settings) }),
 
   uploadFile,
+  computeCorrelation: (codes: string, days: number, method: string) =>
+    request<{ labels: string[]; matrix: number[][] }>(`/correlation?codes=${encodeURIComponent(codes)}&days=${days}&method=${method}`),
   listRuns: () => request<RunListItem[]>("/runs"),
   getRun: (id: string) => request<RunData>(`/runs/${id}`),
   getRunCode: (id: string) => request<Record<string, string>>(`/runs/${id}/code`),

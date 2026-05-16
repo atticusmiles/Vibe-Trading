@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { BarChart3, Loader2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
-import { authHeaders } from "@/lib/apiAuth";
+import { api } from "@/lib/api";
 import { CorrelationMatrix } from "@/components/charts/CorrelationMatrix";
 
 const fieldClass =
@@ -31,15 +31,7 @@ function CorrelationPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`/correlation?codes=${encodeURIComponent(codes)}&days=${days}&method=${method}`, {
-        headers: { "Content-Type": "application/json", ...authHeaders() } as Record<string, string>,
-      });
-      if (!res.ok) {
-        let detail = `HTTP ${res.status}`;
-        try { const body = await res.json(); detail = body.detail || detail; } catch { /* */ }
-        throw new Error(detail);
-      }
-      const result = await res.json();
+      const result = await api.computeCorrelation(codes, days, method);
       setLabels(result.labels);
       setMatrix(result.matrix);
     } catch (e) {

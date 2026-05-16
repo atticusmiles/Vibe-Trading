@@ -649,14 +649,14 @@ async def list_runs(limit: int = 20):
             try:
                 req_data = json.loads(req_file.read_text(encoding="utf-8"))
                 prompt = req_data.get("prompt")
-            except:
+            except (json.JSONDecodeError, OSError):
                 pass
         
         if not prompt and planner_file.exists():
             try:
                 planner_data = json.loads(planner_file.read_text(encoding="utf-8"))
                 prompt = planner_data.get("user_goal") or planner_data.get("goal")
-            except:
+            except (json.JSONDecodeError, OSError):
                 pass
             
         if not prompt:
@@ -676,7 +676,7 @@ async def list_runs(limit: int = 20):
                         total_return = float(row.get('total_return', 0) or 0)
                         sharpe = float(row.get('sharpe', 0) or 0)
                         break
-            except:
+            except (OSError, KeyError, ValueError):
                 pass
         
         run_context = load_run_context(d)
@@ -716,6 +716,13 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=8, max_length=128)
 
 
+async def require_user(user_id: int = Depends(require_auth)) -> int:
+    """Return a real user_id or raise 401 (rejects dev-mode user_id==0)."""
+    if user_id == 0:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    return user_id
+
+
 # ============================================================================
 # Auth Endpoints
 # ============================================================================
@@ -725,13 +732,14 @@ async def register(req: RegisterRequest):
     from src.auth.service import hash_password
     from src.db import get_db
 
+    hashed = hash_password(req.password)
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM users WHERE username = ?", (req.username,)).fetchone()
         if existing:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
         conn.execute(
             "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-            (req.username, hash_password(req.password)),
+            (req.username, hashed),
         )
         user = conn.execute("SELECT id, username, created_at FROM users WHERE username = ?", (req.username,)).fetchone()
     return {"id": user["id"], "username": user["username"], "created_at": user["created_at"]}
@@ -751,9 +759,7 @@ async def login(req: LoginRequest):
 
 
 @app.get("/auth/me")
-async def get_me(user_id: int = Depends(require_auth)):
-    if user_id == 0:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+async def get_me(user_id: int = Depends(require_user)):
     from src.db import get_db
 
     with get_db() as conn:
@@ -765,17 +771,14 @@ async def get_me(user_id: int = Depends(require_auth)):
 
 
 @app.put("/auth/password")
-async def change_password(req: ChangePasswordRequest, user_id: int = Depends(require_auth)):
-    if user_id == 0:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+async def change_password(req: ChangePasswordRequest, user_id: int = Depends(require_user)):
     from src.auth.service import verify_password, hash_password
     from src.db import get_db
 
     with get_db() as conn:
         user = conn.execute("SELECT password_hash FROM users WHERE id = ?", (user_id,)).fetchone()
-    if not user or not verify_password(req.old_password, user["password_hash"]):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect password")
-    with get_db() as conn:
+        if not user or not verify_password(req.old_password, user["password_hash"]):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect password")
         conn.execute(
             "UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?",
             (hash_password(req.new_password), user_id),
@@ -788,9 +791,7 @@ async def change_password(req: ChangePasswordRequest, user_id: int = Depends(req
 # ============================================================================
 
 @app.get("/api/user/settings/apikeys")
-async def get_api_keys(user_id: int = Depends(require_auth)):
-    if user_id == 0:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+async def get_api_keys(user_id: int = Depends(require_user)):
     from src.crypto import decrypt_sensitive_fields
     from src.db import get_db
 
@@ -801,9 +802,7 @@ async def get_api_keys(user_id: int = Depends(require_auth)):
 
 
 @app.put("/api/user/settings/apikeys")
-async def update_api_keys(api_keys: Dict[str, Any], user_id: int = Depends(require_auth)):
-    if user_id == 0:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+async def update_api_keys(api_keys: Dict[str, Any], user_id: int = Depends(require_user)):
     from src.crypto import encrypt_sensitive_fields, is_encryption_available
     from src.db import get_db
 
@@ -830,9 +829,7 @@ async def update_api_keys(api_keys: Dict[str, Any], user_id: int = Depends(requi
 
 
 @app.get("/api/user/settings/preferences")
-async def get_preferences(user_id: int = Depends(require_auth)):
-    if user_id == 0:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+async def get_preferences(user_id: int = Depends(require_user)):
     from src.db import get_db
 
     with get_db() as conn:
@@ -841,9 +838,7 @@ async def get_preferences(user_id: int = Depends(require_auth)):
 
 
 @app.put("/api/user/settings/preferences")
-async def update_preferences(preferences: Dict[str, Any], user_id: int = Depends(require_auth)):
-    if user_id == 0:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+async def update_preferences(preferences: Dict[str, Any], user_id: int = Depends(require_user)):
     from src.db import get_db
 
     with get_db() as conn:
@@ -855,9 +850,7 @@ async def update_preferences(preferences: Dict[str, Any], user_id: int = Depends
 
 
 @app.get("/api/user/settings/system")
-async def get_settings(user_id: int = Depends(require_auth)):
-    if user_id == 0:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+async def get_settings(user_id: int = Depends(require_user)):
     from src.crypto import decrypt_sensitive_fields
     from src.db import get_db
 
@@ -868,9 +861,7 @@ async def get_settings(user_id: int = Depends(require_auth)):
 
 
 @app.put("/api/user/settings/system")
-async def update_settings(settings_data: Dict[str, Any], user_id: int = Depends(require_auth)):
-    if user_id == 0:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+async def update_settings(settings_data: Dict[str, Any], user_id: int = Depends(require_user)):
     from src.crypto import encrypt_sensitive_fields, is_encryption_available
     from src.db import get_db
 
@@ -900,6 +891,7 @@ async def health_check():
 
 @app.get("/correlation")
 async def get_correlation_matrix(
+    user_id: int = Depends(require_auth),
     codes: str = Query(..., description="Comma-separated asset codes, e.g. BTC-USDT,ETH-USDT,SPY"),
     days: int = Query(90, description="Lookback window in days", ge=7, le=365),
     method: str = Query("pearson", description="Correlation method: pearson or spearman"),
@@ -950,7 +942,7 @@ async def shutdown_local_api(background_tasks: BackgroundTasks, request: Request
 
 
 @app.get("/skills")
-async def list_skills():
+async def list_skills(user_id: int = Depends(require_auth)):
     """List registered skills (name and description)."""
     from src.agent.skills import SkillsLoader
 
@@ -1478,7 +1470,6 @@ def serve_main(argv: list[str] | None = None) -> int:
             cwd=str(frontend_root),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            shell=True,
         )
         print(f"[dev] Vite PID={vite_proc.pid}")
         print("[dev] Frontend: http://localhost:5173")
