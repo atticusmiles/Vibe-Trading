@@ -1,9 +1,11 @@
-import { Suspense, lazy, type ComponentType } from "react";
-import { createBrowserRouter } from "react-router-dom";
+import { Suspense, lazy, type ComponentType, type ReactNode } from "react";
+import { createBrowserRouter, Navigate } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
+import { isLoggedIn } from "@/lib/apiAuth";
 
 const Home = lazy(() => import("@/pages/Home").then((m) => ({ default: m.Home })));
 const Agent = lazy(() => import("@/pages/Agent").then((m) => ({ default: m.Agent })));
+const Login = lazy(() => import("@/pages/Login").then((m) => ({ default: m.Login })));
 const RunDetail = lazy(() =>
   import("@/pages/RunDetail").then((m) => ({ default: m.RunDetail })),
 );
@@ -12,6 +14,9 @@ const Compare = lazy(() =>
 );
 const Settings = lazy(() =>
   import("@/pages/Settings").then((m) => ({ default: m.Settings })),
+);
+const Tools = lazy(() =>
+  import("@/pages/Tools").then((m) => ({ default: m.Tools })),
 );
 const Correlation = lazy(() =>
   import("@/pages/Correlation").then((m) => ({ default: m.Correlation })),
@@ -33,16 +38,28 @@ function wrap(Component: ComponentType) {
   );
 }
 
+function RequireAuth({ children }: { children: ReactNode }) {
+  if (!isLoggedIn()) {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
+
 export const router = createBrowserRouter([
+  {
+    path: "/login",
+    element: wrap(Login),
+  },
   {
     element: <Layout />,
     children: [
-      { path: "/", element: wrap(Home) },
-      { path: "/agent", element: wrap(Agent) },
-      { path: "/settings", element: wrap(Settings) },
-      { path: "/runs/:runId", element: wrap(RunDetail) },
-      { path: "/compare", element: wrap(Compare) },
-      { path: "/correlation", element: wrap(Correlation) },
+      { path: "/", element: <RequireAuth>{wrap(Home)}</RequireAuth> },
+      { path: "/agent", element: <RequireAuth>{wrap(Agent)}</RequireAuth> },
+      { path: "/settings", element: <RequireAuth>{wrap(Settings)}</RequireAuth> },
+      { path: "/tools", element: <RequireAuth>{wrap(Tools)}</RequireAuth> },
+      { path: "/runs/:runId", element: <RequireAuth>{wrap(RunDetail)}</RequireAuth> },
+      { path: "/compare", element: <RequireAuth>{wrap(Compare)}</RequireAuth> },
+      { path: "/correlation", element: <Navigate to="/tools" replace /> },
     ],
   },
 ]);

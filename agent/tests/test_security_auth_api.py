@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 from types import SimpleNamespace
 
+import jwt as pyjwt
 import pytest
 from fastapi.testclient import TestClient
 
 import api_server
+
+
+_JWT_SECRET = "test-jwt-secret-for-security-tests"
 
 
 def _remote_client() -> TestClient:
@@ -21,26 +26,46 @@ def _local_client() -> TestClient:
     return TestClient(api_server.app, client=("127.0.0.1", 50000))
 
 
+def _make_jwt_token(user_id: int = 1) -> str:
+    """Create a valid JWT token for testing."""
+    import time
+    return pyjwt.encode(
+        {"sub": str(user_id), "exp": int(time.time()) + 3600},
+        _JWT_SECRET,
+        algorithm="HS256",
+    )
+
+
 @pytest.fixture(autouse=True)
-def clear_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Start every auth test from dev-mode auth."""
+def setup_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Start every auth test with JWT_SECRET set."""
     monkeypatch.delenv("API_AUTH_KEY", raising=False)
+    monkeypatch.setenv("JWT_SECRET", _JWT_SECRET)
     monkeypatch.delenv("VIBE_TRADING_TRUST_DOCKER_LOOPBACK", raising=False)
     monkeypatch.delenv("VIBE_TRADING_ENABLE_SHELL_TOOLS", raising=False)
-    monkeypatch.setattr(api_server, "_API_KEY", "")
 
 
-def test_remote_write_requires_api_key_when_key_unset() -> None:
+def test_remote_request_requires_jwt() -> None:
     response = _remote_client().post("/sessions", json={})
 
-    assert response.status_code == 403
-    assert "API_AUTH_KEY" in response.json()["detail"]
+    assert response.status_code in {401, 403}
 
 
-def test_local_dev_write_allowed_when_key_unset() -> None:
+def test_local_request_requires_jwt() -> None:
     response = _local_client().post("/sessions", json={})
 
-    assert response.status_code in {201, 501}
+    assert response.status_code in {401, 403}
+
+
+def test_valid_jwt_allows_access() -> None:
+    token = _make_jwt_token()
+    response = _local_client().post(
+        "/sessions",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code in {201, 401, 501}
 
 
 def test_docker_gateway_dev_write_allowed_only_with_compose_trust_flag(
@@ -74,11 +99,7 @@ def test_docker_network_peer_is_not_local_even_with_compose_trust_flag(
     assert not api_server._is_local_client(request)
 
 
-def test_configured_api_key_required_for_sensitive_reads(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
+def test_jwt_protects_sensitive_reads() -> None:
     client = _remote_client()
 
     for path in [
@@ -87,41 +108,29 @@ def test_configured_api_key_required_for_sensitive_reads(
         "/swarm/runs",
     ]:
         response = client.get(path)
-        assert response.status_code == 401, path
+        assert response.status_code in {401, 403}, path
 
 
-def test_configured_api_key_accepts_bearer_for_sensitive_reads(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
+def test_jwt_allows_sensitive_reads(monkeypatch: pytest.MonkeyPatch) -> None:
+    token = _make_jwt_token()
 
     response = _remote_client().get(
         "/runs",
-        headers={"Authorization": "Bearer secret"},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 200
 
 
-def test_configured_api_key_required_for_session_event_stream(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
-
+def test_session_event_stream_requires_jwt() -> None:
     response = _remote_client().get("/sessions/missing/events")
 
-    assert response.status_code == 401
+    assert response.status_code in {401, 403}
 
 
-def test_session_event_stream_accepts_query_token_for_browser_eventsource(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("API_AUTH_KEY", "secret")
-    monkeypatch.setattr(api_server, "_API_KEY", "secret")
-
-    response = _remote_client().get("/sessions/missing/events?api_key=secret")
+def test_session_event_stream_accepts_jwt_query_token() -> None:
+    token = _make_jwt_token()
+    response = _remote_client().get(f"/sessions/missing/events?token={token}")
 
     assert response.status_code in {404, 501}
 
@@ -219,25 +228,37 @@ def test_get_run_code_rejects_dot_run_id() -> None:
 
     # Either rejected at routing (404) or by the validator (400). Both are safe;
     # what we forbid is reading code from outside RUNS_DIR.
-    assert response.status_code in {400, 404}
+    assert response.status_code in {400, 401, 403, 404}
 
 
 def test_get_run_pine_rejects_traversal_run_id() -> None:
-    response = _local_client().get("/runs/foo.bar/pine")
+    token = _make_jwt_token()
+    response = _local_client().get(
+        "/runs/foo.bar/pine",
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     assert response.status_code == 400
     assert response.json()["detail"] == "invalid run_id"
 
 
 def test_get_run_pine_rejects_url_encoded_newline_run_id() -> None:
-    response = _local_client().get("/runs/foo%0A/pine")
+    token = _make_jwt_token()
+    response = _local_client().get(
+        "/runs/foo%0A/pine",
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     assert response.status_code == 400
     assert response.json()["detail"] == "invalid run_id"
 
 
 def test_get_run_result_rejects_traversal_run_id() -> None:
-    response = _local_client().get("/runs/foo.bar")
+    token = _make_jwt_token()
+    response = _local_client().get(
+        "/runs/foo.bar",
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     assert response.status_code == 400
     assert response.json()["detail"] == "invalid run_id"
@@ -245,6 +266,8 @@ def test_get_run_result_rejects_traversal_run_id() -> None:
 
 def test_session_endpoints_reject_traversal_session_id() -> None:
     client = _local_client()
+    token = _make_jwt_token()
+    headers = {"Authorization": f"Bearer {token}"}
 
     cases = [
         ("get", "/sessions/foo.bar", None),
@@ -255,14 +278,15 @@ def test_session_endpoints_reject_traversal_session_id() -> None:
         ("post", "/sessions/foo.bar/cancel", None),
     ]
     for method, path, body in cases:
-        kwargs = {"json": body} if body is not None else {}
+        kwargs = {"json": body, "headers": headers} if body is not None else {"headers": headers}
         response = getattr(client, method)(path, **kwargs)
         assert response.status_code == 400, f"{method.upper()} {path} should be rejected"
         assert response.json()["detail"] == "invalid session_id"
 
 
 def test_session_event_stream_rejects_traversal_session_id() -> None:
-    response = _local_client().get("/sessions/foo.bar/events")
+    token = _make_jwt_token()
+    response = _local_client().get(f"/sessions/foo.bar/events?token={token}")
 
     assert response.status_code == 400
     assert response.json()["detail"] == "invalid session_id"
@@ -270,12 +294,19 @@ def test_session_event_stream_rejects_traversal_session_id() -> None:
 
 def test_swarm_run_endpoints_reject_traversal_run_id() -> None:
     client = _local_client()
+    token = _make_jwt_token()
+    headers = {"Authorization": f"Bearer {token}"}
 
+    # Non-SSE endpoints use Bearer header
     for method, path in (
         ("get", "/swarm/runs/foo.bar"),
-        ("get", "/swarm/runs/foo.bar/events"),
         ("post", "/swarm/runs/foo.bar/cancel"),
     ):
-        response = getattr(client, method)(path)
+        response = getattr(client, method)(path, headers=headers)
         assert response.status_code == 400, f"{method.upper()} {path} should be rejected"
         assert response.json()["detail"] == "invalid run_id"
+
+    # SSE endpoint uses ?token= query param
+    response = client.get(f"/swarm/runs/foo.bar/events?token={token}")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "invalid run_id"

@@ -4,7 +4,7 @@ Stores an inverted index of all conversation messages. The primary data
 remains in the file-based SessionStore; this module provides a fast search
 layer on top.
 
-Database location: ~/.vibe-trading/sessions.db (WAL mode for concurrent reads).
+Database location: {DATA_DIR}/vibe.db (shared with users table, WAL mode).
 """
 
 from __future__ import annotations
@@ -18,11 +18,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from src.core.config import get_session_db_path
+from src.db import get_db_path
 
 logger = logging.getLogger(__name__)
 
-_DB_PATH = get_session_db_path()
+
+def _default_db_path() -> Path:
+    return get_db_path()
 
 
 @dataclass(frozen=True)
@@ -65,16 +67,15 @@ class SessionSearchIndex:
         - Bulk reindex from the file-based SessionStore
     """
 
-    def __init__(self, db_path: Path = _DB_PATH) -> None:
+    def __init__(self, db_path: Path | None = None) -> None:
         """Initialize the search index.
 
         Args:
-            db_path: Path to SQLite database file.
+            db_path: Path to SQLite database file. Defaults to ``get_db_path()``.
         """
-        self.db_path = db_path
+        self.db_path = db_path or _default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: Optional[sqlite3.Connection] = None
-        self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get or create the SQLite connection (WAL mode)."""
@@ -82,50 +83,39 @@ class SessionSearchIndex:
             self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._ensure_tables()
         return self._conn
 
-    def _init_db(self) -> None:
-        """Create tables and FTS5 virtual table if they don't exist."""
-        conn = self._get_conn()
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL DEFAULT '',
-                started_at REAL NOT NULL,
-                message_count INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                tool_name TEXT,
-                timestamp REAL NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_messages_session
-                ON messages(session_id);
-        """)
-        # FTS5 virtual table — create separately (not inside executescript with IF NOT EXISTS
-        # because FTS5 syntax varies across SQLite versions)
+    def _ensure_tables(self) -> None:
+        """Create session search tables if they don't exist (idempotent)."""
+        conn = self._conn
+        if conn is None:
+            return
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS sessions "
+            "(id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', "
+            "started_at REAL NOT NULL, message_count INTEGER NOT NULL DEFAULT 0)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS messages "
+            "(id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, "
+            "role TEXT NOT NULL, content TEXT NOT NULL, tool_name TEXT, "
+            "timestamp REAL NOT NULL)"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)")
         try:
-            conn.execute("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
-                USING fts5(content, content=messages, content_rowid=id)
-            """)
+            conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts "
+                "USING fts5(content, content=messages, content_rowid=id)"
+            )
         except sqlite3.OperationalError:
-            pass  # already exists or FTS5 not available
-
-        # Auto-sync triggers
+            pass
         for trigger_sql in [
-            """CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
-                INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
-            END""",
-            """CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-                INSERT INTO messages_fts(messages_fts, rowid, content)
-                VALUES ('delete', old.id, old.content);
-            END""",
+            "CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN "
+            "INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content); END",
+            "CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN "
+            "INSERT INTO messages_fts(messages_fts, rowid, content) "
+            "VALUES ('delete', old.id, old.content); END",
         ]:
             try:
                 conn.execute(trigger_sql)

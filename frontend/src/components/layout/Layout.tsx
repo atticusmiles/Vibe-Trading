@@ -1,22 +1,24 @@
 ﻿import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation, useSearchParams } from "react-router-dom";
-import { BarChart3, Bot, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings } from "lucide-react";
+import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { BarChart3, Bot, LogOut, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { api, type SessionItem } from "@/lib/api";
+import { clearApiAuthKey } from "@/lib/apiAuth";
 import { useAgentStore } from "@/stores/agent";
 import { ConnectionBanner } from "@/components/layout/ConnectionBanner";
 
 const NAV = [
   { to: "/", icon: BarChart3, key: "home" as const },
   { to: "/agent", icon: Bot, key: "agent" as const },
+  { to: "/tools", icon: Wrench, key: "tools" as const },
   { to: "/settings", icon: Settings, key: "settings" as const },
-  { to: "/correlation", icon: BarChart3, key: "correlation" as const },
 ];
 
 export function Layout() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { t } = useI18n();
   const { dark, toggle } = useDarkMode();
@@ -73,11 +75,22 @@ export function Layout() {
         collapsed ? "w-12" : "w-64"
       )}>
         {/* Brand */}
-        <div className={cn("border-b", collapsed ? "p-2 flex justify-center" : "p-4")}>
-          <Link to="/" className={cn("flex items-center font-bold text-base tracking-tight", collapsed ? "justify-center" : "gap-2")}>
-            <BarChart3 className="h-5 w-5 text-primary shrink-0" />
-            {!collapsed && "Vibe-Trading"}
-          </Link>
+        <div className={cn("border-b", collapsed ? "p-2" : "p-4")}>
+          <div className={cn("flex items-center", collapsed ? "justify-center" : "justify-between")}>
+            <Link to="/" className={cn("flex items-center font-bold text-base tracking-tight", collapsed ? "justify-center" : "gap-2")}>
+              <BarChart3 className="h-5 w-5 text-primary shrink-0" />
+              {!collapsed && "Vibe-Trading"}
+            </Link>
+            {!collapsed && (
+              <button
+                onClick={() => { clearApiAuthKey(); navigate("/login", { replace: true }); }}
+                className="text-muted-foreground hover:text-foreground transition"
+                title="Logout"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Nav */}

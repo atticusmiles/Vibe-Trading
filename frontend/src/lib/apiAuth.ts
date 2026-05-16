@@ -13,18 +13,22 @@ export function setApiAuthKey(value: string): void {
   }
 }
 
+export function clearApiAuthKey(): void {
+  window.localStorage.removeItem(STORAGE_KEY);
+}
+
+export function isLoggedIn(): boolean {
+  return !!getApiAuthKey();
+}
+
 export function authHeaders(): Record<string, string> {
   const key = getApiAuthKey();
   return key ? { Authorization: `Bearer ${key}` } : {};
 }
 
-export function authQuerySuffix(): string {
-  const key = getApiAuthKey();
-  return key ? `api_key=${encodeURIComponent(key)}` : "";
-}
-
 export function withAuthQuery(url: string): string {
-  const suffix = authQuerySuffix();
-  if (!suffix) return url;
-  return `${url}${url.includes("?") ? "&" : "?"}${suffix}`;
+  const key = getApiAuthKey();
+  if (!key) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}token=${encodeURIComponent(key)}`;
 }

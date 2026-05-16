@@ -60,3 +60,6 @@ NOTES.md
 
 # Agent tool aliases (auto-generated mirror of CLAUDE.md)
 AGENTS.md
+
+# Local runtime data (vibe.db, sessions, runs, uploads, etc.)
+run/

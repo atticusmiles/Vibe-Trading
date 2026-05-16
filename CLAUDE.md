@@ -24,14 +24,22 @@ cd agent && python -m py_compile cli.py && python -m py_compile api_server.py &&
 ruff check agent/ --fix
 
 # Frontend
-cd frontend && npm install && npm run dev        # dev server on :5899
+cd frontend && npm install && npm run dev        # dev server on :5899 (hot reload)
 cd frontend && npm run build                      # production build → frontend/dist/
 
 # Backend API server
-vibe-trading serve --port 8899
+vibe-trading serve --port 8899                    # production
+python api_server.py --reload                     # dev mode, auto-reload on code changes
+python api_server.py --reload --dev               # dev mode + auto-start Vite dev server
 
 # MCP server (stdio)
 vibe-trading-mcp
+
+# Local dev (both hot reload)
+# Terminal 1: cd agent && python api_server.py --reload          → API on :8899
+# Terminal 2: cd frontend && npm run dev                         → UI on :5899
+# Or single command: python api_server.py --reload --dev
+# Browser: http://localhost:5899
 ```
 
 ## Architecture

@@ -99,6 +99,81 @@ _ENV_CANDIDATES = [
 _dotenv_loaded: bool = False
 
 
+def _load_llm_config_from_db() -> dict | None:
+    """Read LLM config from database user api_keys.
+
+    If database has no llm_provider config, seeds from .env once and returns that.
+    Returns None only if neither database nor .env has config.
+    """
+    try:
+        from src.db import get_db
+        from src.crypto import decrypt_sensitive_fields, encrypt_sensitive_fields, is_encryption_available
+
+        with get_db() as conn:
+            row = conn.execute("SELECT id, api_keys FROM users ORDER BY id LIMIT 1").fetchone()
+        if not row:
+            return None
+
+        data = json.loads(row["api_keys"]) if row["api_keys"] else {}
+        data = decrypt_sensitive_fields(data)
+
+        llm = data.get("llm_provider", {})
+
+        # Seed from .env if database has no LLM config
+        if not llm:
+            _ensure_dotenv()
+            provider = os.getenv("LANGCHAIN_PROVIDER", "").strip().lower()
+            if not provider:
+                return None
+
+            # Find provider-specific env vars
+            _PROVIDER_MAP: dict[str, tuple[str | None, str]] = {
+                "openai": ("OPENAI_API_KEY", "OPENAI_BASE_URL"),
+                "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_BASE_URL"),
+                "deepseek": ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"),
+                "gemini": ("GEMINI_API_KEY", "GEMINI_BASE_URL"),
+                "groq": ("GROQ_API_KEY", "GROQ_BASE_URL"),
+                "dashscope": ("DASHSCOPE_API_KEY", "DASHSCOPE_BASE_URL"),
+                "qwen": ("DASHSCOPE_API_KEY", "DASHSCOPE_BASE_URL"),
+                "zhipu": ("ZHIPU_API_KEY", "ZHIPU_BASE_URL"),
+                "moonshot": ("MOONSHOT_API_KEY", "MOONSHOT_BASE_URL"),
+                "minimax": ("MINIMAX_API_KEY", "MINIMAX_BASE_URL"),
+                "mimo": ("MIMO_API_KEY", "MIMO_BASE_URL"),
+                "zai": ("ZAI_API_KEY", "ZAI_BASE_URL"),
+                "ollama": (None, "OLLAMA_BASE_URL"),
+            }
+            spec = _PROVIDER_MAP.get(provider, _PROVIDER_MAP["openai"])
+            key_env, base_env = spec
+            api_key = os.getenv(key_env, "") if key_env else ""
+            base_url = os.getenv(base_env, "")
+
+            llm = {"provider": provider, "model": os.getenv("LANGCHAIN_MODEL_NAME", ""), "base_url": base_url, "key": api_key}
+            gen = {
+                "temperature": float(os.getenv("LANGCHAIN_TEMPERATURE", "0.0")),
+                "timeout_seconds": int(os.getenv("TIMEOUT_SECONDS", "120")),
+                "max_retries": int(os.getenv("MAX_RETRIES", "2")),
+                "reasoning_effort": os.getenv("LANGCHAIN_REASONING_EFFORT", "").strip().lower(),
+            }
+            data["llm_provider"] = llm
+            data["generation"] = gen
+
+            # Persist seed to database
+            if is_encryption_available():
+                encrypted = encrypt_sensitive_fields(data)
+                with get_db() as conn:
+                    conn.execute(
+                        "UPDATE users SET api_keys = ?, updated_at = datetime('now') WHERE id = ?",
+                        (json.dumps(encrypted, ensure_ascii=False), row["id"]),
+                    )
+
+            return {**llm, **gen}
+
+        gen = data.get("generation", {})
+        return {**llm, **gen}
+    except Exception:
+        return None
+
+
 def _load_env_file(path: Path) -> None:
     """Load a single .env file into os.environ (setdefault, no override)."""
     if load_dotenv is not None:
@@ -180,52 +255,53 @@ def _sync_provider_env() -> None:
 
 
 def build_llm(*, model_name: Optional[str] = None, callbacks: Any = None) -> Any:
-    """Construct a ChatOpenAI instance.
+    """Construct a ChatOpenAI instance from database user config.
 
     Args:
-        model_name: Model name; defaults to LANGCHAIN_MODEL_NAME.
+        model_name: Model name override.
         callbacks: Optional LangChain callbacks.
 
     Returns:
         ChatOpenAI instance.
 
     Raises:
-        RuntimeError: If langchain-openai is missing or LANGCHAIN_MODEL_NAME is unset.
+        RuntimeError: If no LLM config found in database.
     """
-    _sync_provider_env()
-    name = model_name or os.getenv("LANGCHAIN_MODEL_NAME", "").strip()
-    if not name:
-        raise RuntimeError("LANGCHAIN_MODEL_NAME is not set")
-    temperature = float(os.getenv("LANGCHAIN_TEMPERATURE", "0.0"))
-    provider = os.getenv("LANGCHAIN_PROVIDER", "openai").lower()
-    if provider in {"openai-codex", "openai_codex"}:
-        from src.providers.openai_codex import OpenAICodexLLM
+    db_cfg = _load_llm_config_from_db()
+    if not db_cfg:
+        raise RuntimeError("LLM not configured. Please configure in Settings.")
 
-        effort = os.getenv("LANGCHAIN_REASONING_EFFORT", "").strip().lower()
-        return OpenAICodexLLM(
-            model=name,
-            temperature=temperature,
-            timeout=int(os.getenv("TIMEOUT_SECONDS", "120")),
-            reasoning_effort=effort or None,
-        )
+    name = model_name or db_cfg.get("model", "")
+    if not name:
+        raise RuntimeError("Model name not configured")
+    api_key = db_cfg.get("key", "")
+    base_url = db_cfg.get("base_url", "")
+    temperature = float(db_cfg.get("temperature", 0.0))
+    timeout = int(db_cfg.get("timeout_seconds", 120))
+    max_retries = int(db_cfg.get("max_retries", 2))
+    effort = str(db_cfg.get("reasoning_effort", "")).strip().lower()
 
     if ChatOpenAI is None:
         raise RuntimeError("langchain-openai is not installed")
-    # MiniMax requires temperature in (0.0, 1.0] — clamp to 0.01 when the
-    # default 0.0 is used to avoid an API validation error.
-    if provider == "minimax" and temperature <= 0.0:
+
+    if temperature <= 0.0:
         temperature = 0.01
-    # Optional reasoning activation for relays requiring opt-in (e.g. OpenRouter).
-    # Moonshot/DeepSeek official APIs emit reasoning by default and ignore this field.
-    effort = os.getenv("LANGCHAIN_REASONING_EFFORT", "").strip().lower()
-    return ChatOpenAIWithReasoning(
+
+    kwargs: dict[str, Any] = dict(
         model=name,
         temperature=temperature,
-        timeout=int(os.getenv("TIMEOUT_SECONDS", "120")),
-        max_retries=int(os.getenv("MAX_RETRIES", "2")),
+        timeout=timeout,
+        max_retries=max_retries,
         callbacks=callbacks,
-        extra_body={"reasoning": {"effort": effort}} if effort else None,
     )
+    if api_key:
+        kwargs["api_key"] = api_key
+    if base_url:
+        kwargs["base_url"] = base_url
+    if effort:
+        kwargs["extra_body"] = {"reasoning": {"effort": effort}}
+
+    return ChatOpenAIWithReasoning(**kwargs)
 
 
 def _extract_balanced_json(text: str) -> Optional[Dict[str, Any]]:
