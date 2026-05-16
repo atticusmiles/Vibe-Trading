@@ -49,9 +49,7 @@ class DataSource(Protocol):
 
 ### 3.3 数据源环境变量配置
 
-从用户 `api_keys` JSON 中读取：
-- `tushare.key`：tushare token
-- `searxng.base_url`：搜索引擎地址
+- `TUSHARE_TOKEN`：tushare token（可选，未配置时使用 akshare 备用）
 - 未配置的自动跳过，使用备用数据源
 
 ## 4. 定时任务

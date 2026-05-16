@@ -7,7 +7,6 @@ the non-streaming response path and the streaming delta path.
 
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 from typing import Any
 
@@ -114,7 +113,6 @@ class TestChatOpenAIWithReasoningNonStreaming:
     """_create_chat_result path: invoke / ainvoke."""
 
     def _instance(self, model: str = "kimi-k2-thinking") -> Any:
-        os.environ.setdefault("OPENAI_API_KEY", "sk-test")
         return ChatOpenAIWithReasoning(model=model, api_key="sk-test")
 
     def test_preserves_reasoning_on_tool_call_response(self) -> None:
@@ -180,7 +178,6 @@ class TestChatOpenAIWithReasoningStreaming:
     """
 
     def _instance(self, model: str = "kimi-k2-thinking") -> Any:
-        os.environ.setdefault("OPENAI_API_KEY", "sk-test")
         return ChatOpenAIWithReasoning(model=model, api_key="sk-test")
 
     def _delta_chunk(self, delta: dict, model: str = "kimi-k2-thinking") -> dict:
@@ -302,7 +299,6 @@ class TestChatOpenAIWithReasoningOutboundPayload:
     """
 
     def _instance(self, model: str = "kimi-k2-0905-preview") -> Any:
-        os.environ.setdefault("OPENAI_API_KEY", "sk-test")
         return ChatOpenAIWithReasoning(model=model, api_key="sk-test")
 
     def test_reinjects_reasoning_content_from_additional_kwargs(self) -> None:

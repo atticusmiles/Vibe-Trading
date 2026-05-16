@@ -322,22 +322,14 @@ npx clawhub@latest install vibe-trading --force
 
 ## 🧠 환경 변수
 
-`agent/.env.example`을 `agent/.env`로 복사하고 원하는 제공자 블록의 주석을 해제하세요. 각 제공자에 3~4개의 변수가 필요합니다:
+`agent/.env.example`을 `agent/.env`로 복사하고 LLM 연결 매개변수를 설정하세요:
 
 | Variable | Required | Description |
 |----------|:--------:|-------------|
-| `LANGCHAIN_PROVIDER` | Yes | 제공자 이름(`openrouter`, `deepseek`, `groq`, `z.ai`, `ollama` 등) |
-| `<PROVIDER>_API_KEY` | Yes* | API 키(`OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY` 등) |
-| `<PROVIDER>_BASE_URL` | Yes | API 엔드포인트 URL |
-| `LANGCHAIN_MODEL_NAME` | Yes | 모델 이름(예: `deepseek/deepseek-v3.2`) |
+| `LLM_BASE_URL` | Yes | OpenAI 호환 API 엔드포인트 URL |
+| `LLM_API_KEY` | Yes* | API 키(*Ollama는 불필요*) |
+| `LLM_MODEL_NAME` | Yes | 모델 이름(예: `deepseek/deepseek-v3.2`) |
 | `TUSHARE_TOKEN` | No | A주 데이터용 Tushare Pro 토큰(AKShare 폴백) |
-| `TIMEOUT_SECONDS` | No | LLM 호출 타임아웃, 기본 120초 |
-| `API_AUTH_KEY` | 네트워크 배포 권장 | API가 비로컬 클라이언트에서 접근 가능한 경우 필요한 Bearer token |
-| `VIBE_TRADING_ENABLE_SHELL_TOOLS` | No | 원격 API / MCP-SSE 유형 배포에서 shell 가능 도구를 명시적으로 활성화 |
-| `VIBE_TRADING_ALLOWED_FILE_ROOTS` | No | 문서와 브로커 거래 명세서 import용 추가 루트(쉼표 구분) |
-| `VIBE_TRADING_ALLOWED_RUN_ROOTS` | No | 생성 코드 run 디렉터리용 추가 루트(쉼표 구분) |
-
-<sub>* Ollama는 API 키가 필요 없습니다.</sub>
 
 **무료 데이터(키 불필요):** AKShare의 A주, yfinance의 HK/US 주식, OKX의 크립토, CCXT의 100+ 크립토 거래소. 시스템이 시장별로 최적 소스를 자동 선택합니다.
 

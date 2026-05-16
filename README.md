@@ -248,12 +248,11 @@ vibe-trading-mcp               # start MCP server (stdio)
 
 ### Prerequisites
 
-- An **LLM API key** from any supported provider — or run locally with **Ollama** (no key needed)
+- An **LLM API key** from any OpenAI-compatible provider — or run locally with **Ollama** (no key needed)
 - **Python 3.11+** for Path B
 - **Docker** for Path A
-- OpenAI Codex can also be used with ChatGPT OAuth: set `LANGCHAIN_PROVIDER=openai-codex`, then run `vibe-trading provider login openai-codex`. This does not use `OPENAI_API_KEY`.
 
-> **Supported LLM providers:** OpenRouter, OpenAI, DeepSeek, Gemini, Groq, DashScope/Qwen, Zhipu, Moonshot/Kimi, MiniMax, Xiaomi MIMO, Z.ai, Ollama (local). See `.env.example` for config.
+> **Supported LLM providers:** Any OpenAI-compatible API (OpenRouter, OpenAI, DeepSeek, Gemini, Groq, DashScope/Qwen, Zhipu, Moonshot/Kimi, MiniMax, Ollama, etc). See `.env.example` for config.
 
 > **Tip:** All markets work without any API keys thanks to automatic fallback. yfinance (HK/US), OKX (crypto), and AKShare (A-shares, US, HK, futures, forex) are all free. Tushare token is optional — AKShare covers A-shares as a free fallback.
 
@@ -263,7 +262,7 @@ vibe-trading-mcp               # start MCP server (stdio)
 git clone https://github.com/HKUDS/Vibe-Trading.git
 cd Vibe-Trading
 cp agent/.env.example agent/.env
-# Edit agent/.env — uncomment your LLM provider and set API key
+# Edit agent/.env — set LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_NAME
 docker compose up --build
 ```
 
@@ -325,17 +324,16 @@ The skill + MCP config is downloaded into your agent's skills directory. See [Cl
 
 ## 🧠 Environment Variables
 
-Copy `agent/.env.example` to `agent/.env` and uncomment the provider block you want. Each provider needs 3-4 variables:
+Copy `.env.example` to `.env` and configure your LLM provider. Only 3 variables are required:
 
 | Variable | Required | Description |
 |----------|:--------:|-------------|
-| `LANGCHAIN_PROVIDER` | Yes | Provider name (`openrouter`, `deepseek`, `groq`, `ollama`, etc.) |
-| `<PROVIDER>_API_KEY` | Yes* | API key (`OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, etc.) |
-| `<PROVIDER>_BASE_URL` | Yes | API endpoint URL |
-| `LANGCHAIN_MODEL_NAME` | Yes | Model name (e.g. `deepseek/deepseek-v3.2`) |
+| `LLM_BASE_URL` | Yes | OpenAI-compatible API endpoint URL |
+| `LLM_API_KEY` | Yes* | API key (*not required for Ollama*) |
+| `LLM_MODEL_NAME` | Yes | Model name (e.g. `deepseek/deepseek-v3.2`) |
 | `TUSHARE_TOKEN` | No | Tushare Pro token for A-share data (falls back to AKShare) |
-| `TIMEOUT_SECONDS` | No | LLM call timeout, default 120s |
-| `API_AUTH_KEY` | Recommended for network deployments | Bearer token required when the API is reachable from non-local clients |
+| `JWT_SECRET` | Yes | JWT secret for authentication (min 32 chars) |
+| `ENCRYPTION_KEY` | Yes | AES-256-GCM key for settings encryption |
 | `VIBE_TRADING_ENABLE_SHELL_TOOLS` | No | Explicit opt-in for shell-capable tools in remote API/MCP-SSE style deployments |
 | `VIBE_TRADING_ALLOWED_FILE_ROOTS` | No | Extra comma-separated roots for document and broker-journal imports |
 | `VIBE_TRADING_ALLOWED_RUN_ROOTS` | No | Extra comma-separated roots for generated-code run directories |

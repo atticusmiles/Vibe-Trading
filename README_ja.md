@@ -322,22 +322,14 @@ npx clawhub@latest install vibe-trading --force
 
 ## 🧠 環境変数
 
-`agent/.env.example`を`agent/.env`へコピーし、使いたいプロバイダーのブロックをアンコメント。各プロバイダーは3〜4変数を使用:
+`agent/.env.example`を`agent/.env`へコピーし、LLM接続パラメータを設定:
 
 | Variable | Required | Description |
 |----------|:--------:|-------------|
-| `LANGCHAIN_PROVIDER` | Yes | プロバイダー名（`openrouter`, `deepseek`, `groq`, `ollama` など） |
-| `<PROVIDER>_API_KEY` | Yes* | APIキー（`OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY` など） |
-| `<PROVIDER>_BASE_URL` | Yes | APIエンドポイントURL |
-| `LANGCHAIN_MODEL_NAME` | Yes | モデル名（例: `deepseek/deepseek-v3.2`） |
+| `LLM_BASE_URL` | Yes | OpenAI互換APIエンドポイントURL |
+| `LLM_API_KEY` | Yes* | APIキー（*Ollamaは不要*） |
+| `LLM_MODEL_NAME` | Yes | モデル名（例: `deepseek/deepseek-v3.2`） |
 | `TUSHARE_TOKEN` | No | A株データ用Tushare Proトークン（AKShareにフォールバック） |
-| `TIMEOUT_SECONDS` | No | LLM呼び出しタイムアウト（既定120s） |
-| `API_AUTH_KEY` | ネットワークデプロイでは推奨 | APIが非ローカルクライアントから到達可能な場合に必要なBearer token |
-| `VIBE_TRADING_ENABLE_SHELL_TOOLS` | No | リモートAPI / MCP-SSE系デプロイでshell系ツールを明示的に有効化 |
-| `VIBE_TRADING_ALLOWED_FILE_ROOTS` | No | 文書・ブローカー取引明細インポート用の追加ルート（カンマ区切り） |
-| `VIBE_TRADING_ALLOWED_RUN_ROOTS` | No | 生成コードrunディレクトリ用の追加ルート（カンマ区切り） |
-
-<sub>* OllamaはAPIキー不要。</sub>
 
 **無料データ（キー不要）:** AKShare経由のA株、yfinance経由のHK/US株式、OKX経由の暗号、CCXT経由の100+暗号取引所。市場ごとに最適なソースを自動選択。
 

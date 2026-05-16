@@ -10,10 +10,10 @@ env:
   - name: TUSHARE_TOKEN
     description: "Tushare API token for China A-share data (optional — HK/US/crypto work without any key)"
     required: false
-  - name: OPENAI_API_KEY
+  - name: LLM_API_KEY
     description: "OpenAI-compatible API key — only needed for run_swarm (multi-agent teams). All other tools work without it."
     required: false
-  - name: LANGCHAIN_MODEL_NAME
+  - name: LLM_MODEL_NAME
     description: "LLM model name for run_swarm (e.g. deepseek/deepseek-v3.2). Only needed if using run_swarm."
     required: false
 mcp:
@@ -59,7 +59,7 @@ Add to your agent's MCP config:
 |---------|-----------|------|
 | HK/US equities & crypto | None | Always free (yfinance + OKX) |
 | China A-share data | `TUSHARE_TOKEN` | Only if you query A-share symbols |
-| Multi-agent swarm (`run_swarm`) | `OPENAI_API_KEY` + `LANGCHAIN_MODEL_NAME` | Swarm spawns internal LLM workers |
+| Multi-agent swarm (`run_swarm`) | `LLM_API_KEY` + `LLM_MODEL_NAME` | Swarm spawns internal LLM workers |
 
 ## What You Can Do
 

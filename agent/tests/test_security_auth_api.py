@@ -39,7 +39,6 @@ def _make_jwt_token(user_id: int = 1) -> str:
 @pytest.fixture(autouse=True)
 def setup_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     """Start every auth test with JWT_SECRET set."""
-    monkeypatch.delenv("API_AUTH_KEY", raising=False)
     monkeypatch.setenv("JWT_SECRET", _JWT_SECRET)
     monkeypatch.delenv("VIBE_TRADING_TRUST_DOCKER_LOOPBACK", raising=False)
     monkeypatch.delenv("VIBE_TRADING_ENABLE_SHELL_TOOLS", raising=False)
