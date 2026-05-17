@@ -10,7 +10,7 @@ services:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - JWT_SECRET=${JWT_SECRET:-}
     env_file:
-      - agent/.env
+      - .env
     volumes:
       - ./data:/data
     restart: unless-stopped
