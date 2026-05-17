@@ -41,6 +41,7 @@ jobs:
           GHCR_USER: ${{ github.actor }}
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           DEPLOY_TAG: ${{ inputs.image_tag }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/vibe-trading' }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
@@ -49,9 +50,11 @@ jobs:
           host: ${{ vars.HOST }}
           username: ${{ vars.SSH_USER || 'deploy' }}
           password: ${{ secrets.SSH_PASSWORD }}
-          envs: GH_PAT,GHCR_USER,IMAGE,DEPLOY_TAG,LLM_API_KEY,TUSHARE_TOKEN,ENCRYPTION_KEY,JWT_SECRET
+          envs: GH_PAT,GHCR_USER,IMAGE,DEPLOY_TAG,DEPLOY_PATH,LLM_API_KEY,TUSHARE_TOKEN,ENCRYPTION_KEY,JWT_SECRET
           script: |
             set -euo pipefail
+
+            DEPLOY_DIR="${DEPLOY_PATH:-/opt/vibe-trading}"
 
             # Stop old deployments
             for old_dir in /opt/vibe-trading "$HOME/vibe-trading"; do
@@ -60,10 +63,9 @@ jobs:
               fi
             done
 
-            COMPOSE_DIR="/opt/1panel/docker/compose/vibetrading"
-            sudo mkdir -p "$COMPOSE_DIR/data"
-            sudo chown -R $(whoami) "$COMPOSE_DIR"
-            cd "$COMPOSE_DIR"
+            sudo mkdir -p "$DEPLOY_DIR/data"
+            sudo chown -R $(whoami) "$DEPLOY_DIR"
+            cd "$DEPLOY_DIR"
 
             # Download docker-compose.yml from repo
             curl -sL -H "Authorization: token $GH_PAT" \
