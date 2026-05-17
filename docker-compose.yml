@@ -1,14 +1,13 @@
 services:
   vibe-trading:
-    build: .
     image: ghcr.io/atticusmiles/vibe-trading:${TAG:-develop}
+    build:
+      context: .
     ports:
       - "127.0.0.1:8899:8899"
     environment:
       - DATA_DIR=/data
       - VIBE_TRADING_TRUST_DOCKER_LOOPBACK=1
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
-      - JWT_SECRET=${JWT_SECRET:-}
     env_file:
       - .env
     volumes:

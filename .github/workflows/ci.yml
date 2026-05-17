@@ -153,29 +153,15 @@ jobs:
             done
 
             COMPOSE_DIR="/opt/1panel/docker/compose/vibetrading"
-            sudo mkdir -p "$COMPOSE_DIR"
+            sudo mkdir -p "$COMPOSE_DIR/data"
             sudo chown -R $(whoami) "$COMPOSE_DIR"
             cd "$COMPOSE_DIR"
 
-            # Prepare data directory
-            mkdir -p "$COMPOSE_DIR/data"
-
-            # Write docker-compose.yml
-            cat > docker-compose.yml <<DCEOF
-            services:
-              vibe-trading:
-                image: $IMAGE:\${TAG:-develop}
-                ports:
-                  - "127.0.0.1:8899:8899"
-                environment:
-                  - DATA_DIR=/data
-                  - VIBE_TRADING_TRUST_DOCKER_LOOPBACK=1
-                env_file:
-                  - .env
-                volumes:
-                  - ./data:/data
-                restart: unless-stopped
-            DCEOF
+            # Download docker-compose.yml from repo
+            curl -sL -H "Authorization: token $GH_PAT" \
+              -H "Accept: application/vnd.github.v3.raw" \
+              "https://api.github.com/repos/atticusmiles/vibe-trading/contents/docker-compose.yml?ref=release" \
+              -o docker-compose.yml
 
             # Fetch environment variables from GitHub API
             REPO_API="https://api.github.com/repos/atticusmiles/vibe-trading"
