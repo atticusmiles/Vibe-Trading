@@ -14,27 +14,27 @@ type TabKey = (typeof TABS)[number];
 
 const tabMeta: Record<TabKey, { label: string; icon: typeof Wrench; sections: { id: string; label: string }[] }> = {
   preferences: {
-    label: "Investment Preferences",
+    label: "投资偏好",
     icon: Briefcase,
     sections: [
-      { id: "invest-style", label: "Investment Style" },
-      { id: "markets", label: "Markets & Industries" },
-      { id: "capital", label: "Capital & Strategy" },
+      { id: "invest-style", label: "投资风格" },
+      { id: "markets", label: "市场与行业" },
+      { id: "capital", label: "资金与策略" },
     ],
   },
   system: {
-    label: "System Settings",
+    label: "系统设置",
     icon: Wrench,
     sections: [
-      { id: "scheduler", label: "Scheduler" },
-      { id: "proposals", label: "Proposal Limits" },
+      { id: "scheduler", label: "调度器" },
+      { id: "proposals", label: "提案限制" },
     ],
   },
   security: {
-    label: "Security",
+    label: "安全",
     icon: Lock,
     sections: [
-      { id: "password", label: "Change Password" },
+      { id: "password", label: "修改密码" },
     ],
   },
 };
@@ -111,7 +111,7 @@ function ActionBar({ saving, onSave, onReset }: { saving: boolean; onSave: () =>
         className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
       >
         {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-        Save
+        保存
       </button>
       <button
         type="button"
@@ -119,7 +119,7 @@ function ActionBar({ saving, onSave, onReset }: { saving: boolean; onSave: () =>
         className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
       >
         <RotateCcw className="h-3.5 w-3.5" />
-        Reset
+        重置
       </button>
     </div>
   );
@@ -145,7 +145,7 @@ function PreferencesPage() {
   useEffect(() => {
     api.getPreferences()
       .then((d) => { setData(d); setSnapshot(JSON.parse(JSON.stringify(d))); })
-      .catch((err) => toast.error(err instanceof Error ? err.message : "Failed to load preferences"))
+      .catch((err) => toast.error(err instanceof Error ? err.message : "偏好加载失败"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -154,9 +154,9 @@ function PreferencesPage() {
     try {
       await api.updatePreferences(data);
       setSnapshot(JSON.parse(JSON.stringify(data)));
-      toast.success("Preferences saved");
+      toast.success("偏好已保存");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -185,25 +185,25 @@ function PreferencesPage() {
     );
   }
 
-  if (loading) return <div className="flex items-center gap-2 p-12 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> Loading...</div>;
+  if (loading) return <div className="flex items-center gap-2 p-12 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> 加载中...</div>;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_180px]">
       <div className="space-y-6">
           <section id="invest-style" className="rounded-lg border bg-card p-5 shadow-sm scroll-mt-20">
-            <h2 className="mb-4 text-base font-semibold">Investment Style</h2>
+            <h2 className="mb-4 text-base font-semibold">投资风格</h2>
             <div className="grid gap-4 sm:grid-cols-2 ">
               <label className="grid gap-1">
-                <span className={labelClass}>Style</span>
+                <span className={labelClass}>风格</span>
                 <select className={fieldClass} value={data.investment_style || ""} onChange={(e) => setData({ ...data, investment_style: e.target.value })}>
-                  <option value="">Select...</option>
+                  <option value="">请选择...</option>
                   {INVESTMENT_STYLES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </label>
               <label className="grid gap-1">
-                <span className={labelClass}>Risk Appetite</span>
+                <span className={labelClass}>风险偏好</span>
                 <select className={fieldClass} value={data.risk_appetite || ""} onChange={(e) => setData({ ...data, risk_appetite: e.target.value })}>
-                  <option value="">Select...</option>
+                  <option value="">请选择...</option>
                   {RISK_APPETITES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </label>
@@ -211,54 +211,54 @@ function PreferencesPage() {
           </section>
 
           <section id="markets" className="rounded-lg border bg-card p-5 shadow-sm scroll-mt-20">
-            <h2 className="mb-4 text-base font-semibold">Markets & Industries</h2>
+            <h2 className="mb-4 text-base font-semibold">市场与行业</h2>
             <div className="grid gap-4 ">
               <label className="grid gap-1">
-                <span className={labelClass}>Focus Markets</span>
+                <span className={labelClass}>关注市场</span>
                 <CheckboxGroup field="focus_markets" options={FOCUS_MARKETS} />
               </label>
               <label className="grid gap-1">
-                <span className={labelClass}>Focus Industries</span>
+                <span className={labelClass}>关注行业</span>
                 <CheckboxGroup field="focus_industries" options={FOCUS_INDUSTRIES} />
               </label>
             </div>
           </section>
 
           <section id="capital" className="rounded-lg border bg-card p-5 shadow-sm scroll-mt-20">
-            <h2 className="mb-4 text-base font-semibold">Capital & Strategy</h2>
+            <h2 className="mb-4 text-base font-semibold">资金与策略</h2>
             <div className="grid gap-4 sm:grid-cols-2 ">
               <label className="grid gap-1">
-                <span className={labelClass}>Holding Period</span>
+                <span className={labelClass}>持仓周期</span>
                 <select className={fieldClass} value={data.holding_period || ""} onChange={(e) => setData({ ...data, holding_period: e.target.value })}>
-                  <option value="">Select...</option>
+                  <option value="">请选择...</option>
                   {HOLDING_PERIODS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </label>
               <label className="grid gap-1">
-                <span className={labelClass}>Capital Scale</span>
+                <span className={labelClass}>资金规模</span>
                 <select className={fieldClass} value={data.capital_scale || ""} onChange={(e) => setData({ ...data, capital_scale: e.target.value })}>
-                  <option value="">Select...</option>
+                  <option value="">请选择...</option>
                   {CAPITAL_SCALES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </label>
               <label className="grid gap-1">
-                <span className={labelClass}>Stock Investment Total</span>
+                <span className={labelClass}>股票投资总额</span>
                 <input type="number" className={fieldClass} value={data.stock_invest_total || ""} onChange={(e) => setData({ ...data, stock_invest_total: Number(e.target.value) })} />
               </label>
               <label className="grid gap-1">
-                <span className={labelClass}>Avoid Targets</span>
+                <span className={labelClass}>回避标的</span>
                 <input className={fieldClass} value={(data.avoid_targets || []).join(", ")} onChange={(e) => setData({ ...data, avoid_targets: e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean) })} placeholder="ST股, 次新股" />
               </label>
             </div>
             <label className="mt-4 grid gap-1 ">
-              <span className={labelClass}>Custom Notes</span>
+              <span className={labelClass}>自定义备注</span>
               <textarea className={fieldClass} rows={3} value={data.custom_notes || ""} onChange={(e) => setData({ ...data, custom_notes: e.target.value })} />
             </label>
           </section>
         </div>
 
         <aside className="hidden lg:block self-start sticky top-36">
-          <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Sections</h3>
+          <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">章节</h3>
           <SectionNav sections={sections} activeId={activeId} />
           <ActionBar saving={saving} onSave={save} onReset={reset} />
         </aside>
@@ -276,19 +276,19 @@ function PasswordSection({ oldPwd, setOldPwd, newPwd, setNewPwd, confirmPwd, set
     <section id="password" className="rounded-lg border bg-card p-5 shadow-sm scroll-mt-20">
       <div className="mb-4 flex items-center gap-2">
         <Lock className="h-4 w-4 text-primary" />
-        <h2 className="text-base font-semibold">Change Password</h2>
+        <h2 className="text-base font-semibold">修改密码</h2>
       </div>
       <div className="grid gap-4 max-w-md">
         <label className="grid gap-1">
-          <span className={labelClass}>Current Password</span>
+          <span className={labelClass}>当前密码</span>
           <input type="password" value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} className={fieldClass} />
         </label>
         <label className="grid gap-1">
-          <span className={labelClass}>New Password</span>
-          <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className={fieldClass} placeholder="Min 8 characters" />
+          <span className={labelClass}>新密码</span>
+          <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className={fieldClass} placeholder="最少 8 个字符" />
         </label>
         <label className="grid gap-1">
-          <span className={labelClass}>Confirm New Password</span>
+          <span className={labelClass}>确认新密码</span>
           <input
             type="password"
             value={confirmPwd}
@@ -296,7 +296,7 @@ function PasswordSection({ oldPwd, setOldPwd, newPwd, setNewPwd, confirmPwd, set
             className={fieldClass}
           />
           {confirmPwd && newPwd !== confirmPwd && (
-            <span className="text-xs text-danger">Passwords do not match</span>
+            <span className="text-xs text-danger">两次密码不一致</span>
           )}
         </label>
       </div>
@@ -317,7 +317,7 @@ function SystemPage() {
   useEffect(() => {
     api.getSettings()
       .then((d) => { setData(d); setSnapshot(JSON.parse(JSON.stringify(d))); })
-      .catch((err) => toast.error(err instanceof Error ? err.message : "Failed to load settings"))
+      .catch((err) => toast.error(err instanceof Error ? err.message : "设置加载失败"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -326,9 +326,9 @@ function SystemPage() {
     try {
       await api.updateSettings(data);
       setSnapshot(JSON.parse(JSON.stringify(data)));
-      toast.success("Settings saved");
+      toast.success("设置已保存");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -338,7 +338,7 @@ function SystemPage() {
 
   useCtrlS(save);
 
-  if (loading) return <div className="flex items-center gap-2 p-12 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> Loading...</div>;
+  if (loading) return <div className="flex items-center gap-2 p-12 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> 加载中...</div>;
 
   const limits = data.proposal_limits || { trend: 10, industry: 10, stock: 10 };
 
@@ -346,32 +346,32 @@ function SystemPage() {
     <div className="grid gap-6 lg:grid-cols-[1fr_180px]">
       <div className="space-y-6">
           <section id="scheduler" className="rounded-lg border bg-card p-5 shadow-sm scroll-mt-20">
-            <h2 className="mb-4 text-base font-semibold">Scheduler</h2>
+            <h2 className="mb-4 text-base font-semibold">调度器</h2>
             <div className="grid gap-4 sm:grid-cols-2 ">
               <label className="grid gap-1">
-                <span className={labelClass}>News Archive Time</span>
+                <span className={labelClass}>新闻归档时间</span>
                 <input type="time" className={fieldClass} value={data.news_archive_time || "08:00"} onChange={(e) => setData({ ...data, news_archive_time: e.target.value })} />
               </label>
               <label className="grid gap-1">
-                <span className={labelClass}>Sentinel Interval (minutes)</span>
+                <span className={labelClass}>哨兵间隔（分钟）</span>
                 <input type="number" className={fieldClass} min={10} max={1440} value={data.sentinel_interval || 60} onChange={(e) => setData({ ...data, sentinel_interval: Number(e.target.value) })} />
               </label>
             </div>
           </section>
 
           <section id="proposals" className="rounded-lg border bg-card p-5 shadow-sm scroll-mt-20">
-            <h2 className="mb-4 text-base font-semibold">Proposal Limits</h2>
+            <h2 className="mb-4 text-base font-semibold">提案限制</h2>
             <div className="grid gap-4 grid-cols-3 ">
               <label className="grid gap-1">
-                <span className={hintClass}>Trend</span>
+                <span className={hintClass}>趋势</span>
                 <input type="number" className={fieldClass} min={1} value={limits.trend} onChange={(e) => setData({ ...data, proposal_limits: { ...limits, trend: Number(e.target.value) } })} />
               </label>
               <label className="grid gap-1">
-                <span className={hintClass}>Industry</span>
+                <span className={hintClass}>行业</span>
                 <input type="number" className={fieldClass} min={1} value={limits.industry} onChange={(e) => setData({ ...data, proposal_limits: { ...limits, industry: Number(e.target.value) } })} />
               </label>
               <label className="grid gap-1">
-                <span className={hintClass}>Stock</span>
+                <span className={hintClass}>自选股</span>
                 <input type="number" className={fieldClass} min={1} value={limits.stock} onChange={(e) => setData({ ...data, proposal_limits: { ...limits, stock: Number(e.target.value) } })} />
               </label>
             </div>
@@ -379,7 +379,7 @@ function SystemPage() {
         </div>
 
         <aside className="hidden lg:block self-start sticky top-36">
-          <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Sections</h3>
+          <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">章节</h3>
           <SectionNav sections={sections} activeId={activeId} />
           <ActionBar saving={saving} onSave={save} onReset={reset} />
         </aside>
@@ -397,16 +397,16 @@ function SecurityPage() {
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
-    if (!oldPwd || !newPwd) { toast.error("Please fill in all fields"); return; }
-    if (newPwd.length < 8) { toast.error("New password must be at least 8 characters"); return; }
-    if (newPwd !== confirmPwd) { toast.error("Passwords do not match"); return; }
+    if (!oldPwd || !newPwd) { toast.error("请填写所有字段"); return; }
+    if (newPwd.length < 8) { toast.error("新密码至少 8 个字符"); return; }
+    if (newPwd !== confirmPwd) { toast.error("两次密码不一致"); return; }
     setSaving(true);
     try {
       await api.changePassword(oldPwd, newPwd);
-      toast.success("Password updated");
+      toast.success("密码已更新");
       setOldPwd(""); setNewPwd(""); setConfirmPwd("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to change password");
+      toast.error(err instanceof Error ? err.message : "密码修改失败");
     } finally {
       setSaving(false);
     }
@@ -420,7 +420,7 @@ function SecurityPage() {
         <PasswordSection oldPwd={oldPwd} setOldPwd={setOldPwd} newPwd={newPwd} setNewPwd={setNewPwd} confirmPwd={confirmPwd} setConfirmPwd={setConfirmPwd} />
       </div>
       <aside className="hidden lg:block self-start sticky top-36">
-        <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Sections</h3>
+        <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">章节</h3>
         <SectionNav sections={sections} activeId={activeId} />
         <ActionBar saving={saving} onSave={save} onReset={reset} />
       </aside>

@@ -136,7 +136,7 @@ export function Agent() {
           agentMsgs.push({ id: m.message_id, type: "user", content: m.content, timestamp: ts });
         } else if (runId) {
           // Show text answer first (if non-empty), then chart card
-          if (m.content && m.content !== "Strategy execution completed.") {
+          if (m.content && m.content !== "策略执行完成。") {
             agentMsgs.push({ id: m.message_id + "_ans", type: "answer", content: m.content, timestamp: ts });
           }
           agentMsgs.push({ id: m.message_id, type: "run_complete", content: "", runId, metrics, timestamp: ts + 1 });
@@ -248,7 +248,7 @@ export function Agent() {
       "attempt.failed": (d) => {
         touch();
         act().clearStreaming();
-        act().addMessage({ id: "", type: "error", content: String(d.error || "Execution failed"), timestamp: Date.now() });
+        act().addMessage({ id: "", type: "error", content: String(d.error || "执行失败"), timestamp: Date.now() });
         act().setStatus("idle");
         scrollToBottom();
       },
@@ -290,7 +290,7 @@ export function Agent() {
     const timer = setInterval(() => {
       if (lastEventRef.current && Date.now() - lastEventRef.current > 90_000 && act().status === "streaming") {
         act().setStatus("idle");
-        toast.warning("Execution timed out, automatically stopped");
+        toast.warning("执行超时，已自动停止");
       }
     }, 10_000);
     return () => clearInterval(timer);
@@ -440,7 +440,7 @@ export function Agent() {
             a.status = "failed";
             a.elapsed = a.startedAt ? Date.now() - a.startedAt : 0;
             const error = (d.data?.error || "").slice(0, 80);
-            dash.completedSummaries.push({ agentId, summary: `FAILED: ${error}` });
+            dash.completedSummaries.push({ agentId, summary: `失败：${error}` });
             flush();
           }
         } catch {}
@@ -474,7 +474,7 @@ export function Agent() {
               dash.finalReport = tasks
                 .filter(t => t.summary && !t.summary.startsWith("Worker hit iteration limit"))
                 .map(t => `### ${t.agent_id}\n${t.summary}`)
-                .join("\n\n") || "Swarm completed.";
+                .join("\n\n") || "Swarm 完成。";
             } else {
               dash.finalReport = report;
             }
@@ -485,11 +485,11 @@ export function Agent() {
         } catch {}
       }
       evtSource.close();
-      act().addMessage({ id: "", type: "error", content: "Swarm timed out", timestamp: Date.now() });
+      act().addMessage({ id: "", type: "error", content: "Swarm 超时", timestamp: Date.now() });
       act().setStatus("idle");
     } catch (err) {
       act().setStatus("error");
-      act().addMessage({ id: "", type: "error", content: `Swarm failed: ${err instanceof Error ? err.message : "Unknown"}`, timestamp: Date.now() });
+      act().addMessage({ id: "", type: "error", content: `Swarm 失败：${err instanceof Error ? err.message : "未知"}`, timestamp: Date.now() });
     }
   };
 
@@ -544,9 +544,9 @@ export function Agent() {
       act().setStatus("idle");
       act().clearStreaming();
       useAgentStore.setState({ toolCalls: [] });
-      toast.info("Cancel request sent");
+      toast.info("取消请求已发送");
     } catch {
-      toast.error("Cancel failed");
+      toast.error("取消失败");
     }
   };
 
@@ -569,19 +569,19 @@ export function Agent() {
 
   const handleExport = () => {
     if (messages.length === 0) return;
-    const lines: string[] = [`# Chat Export`, ``, `Export time: ${new Date().toLocaleString()}`, ``];
+    const lines: string[] = [`# 对话导出`, ``, `导出时间：${new Date().toLocaleString()}`, ``];
     for (const msg of messages) {
       const time = new Date(msg.timestamp).toLocaleString();
       if (msg.type === "user") {
-        lines.push(`## User (${time})`, ``, msg.content, ``);
+        lines.push(`## 用户 (${time})`, ``, msg.content, ``);
       } else if (msg.type === "answer") {
-        lines.push(`## Assistant (${time})`, ``, msg.content, ``);
+        lines.push(`## 助手 (${time})`, ``, msg.content, ``);
       } else if (msg.type === "error") {
-        lines.push(`## Error (${time})`, ``, msg.content, ``);
+        lines.push(`## 错误 (${time})`, ``, msg.content, ``);
       } else if (msg.type === "tool_call") {
-        lines.push(`> Tool call: ${msg.tool || "unknown"}`, ``);
+        lines.push(`> 工具调用：${msg.tool || "unknown"}`, ``);
       } else if (msg.type === "run_complete") {
-        lines.push(`> Backtest complete: ${msg.runId || ""}`, ``);
+        lines.push(`> 回测完成：${msg.runId || ""}`, ``);
       }
     }
     const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
@@ -604,11 +604,11 @@ export function Agent() {
     ];
     const lowered = file.name.toLowerCase();
     if (blockedExts.some((ext) => lowered.endsWith(ext))) {
-      toast.error("Executables and archives are not allowed");
+      toast.error("不允许上传可执行文件和压缩包");
       return;
     }
     if (file.size > 50 * 1024 * 1024) {
-      toast.error("File size exceeds 50 MB limit");
+      toast.error("文件大小超过 50 MB 限制");
       return;
     }
     setUploading(true);
@@ -616,9 +616,9 @@ export function Agent() {
     try {
       const result = await api.uploadFile(file);
       setAttachment({ filename: result.filename, filePath: result.file_path });
-      toast.success(`Uploaded: ${result.filename}`);
+      toast.success(`已上传：${result.filename}`);
     } catch (err) {
-      toast.error(`Upload failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      toast.error(`上传失败：${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setUploading(false);
     }
@@ -721,7 +721,7 @@ export function Agent() {
             onClick={forceScrollToBottom}
             className="sticky bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-medium shadow-lg hover:opacity-90 transition-opacity z-10"
           >
-            <ArrowDown className="h-3 w-3" /> New messages
+            <ArrowDown className="h-3 w-3" /> 新消息
           </button>
         )}
         <ConversationTimeline messages={messages} containerRef={listRef} />
@@ -757,7 +757,7 @@ export function Agent() {
           {uploading && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Uploading...
+              上传中...
             </div>
           )}
           <div className="flex gap-2 items-end">
@@ -768,7 +768,7 @@ export function Agent() {
                 onClick={() => setShowUploadMenu(prev => !prev)}
                 disabled={status === "streaming" || uploading}
                 className="w-9 h-9 rounded-full border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 shrink-0"
-                title="More options"
+                title="更多选项"
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -780,20 +780,20 @@ export function Agent() {
                     className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors flex items-center gap-2"
                   >
                     <Paperclip className="h-4 w-4" />
-                    Upload PDF document
+                    上传 PDF 文档
                   </button>
                   <div className="border-t my-1" />
                   <button
                     type="button"
                     onClick={() => {
                       setShowUploadMenu(false);
-                      setSwarmPreset({ name: "auto", title: "Agent Swarm" });
+                      setSwarmPreset({ name: "auto", title: "智能体集群" });
                       inputRef.current?.focus();
                     }}
                     className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors flex items-center gap-2"
                   >
                     <Users className="h-4 w-4" />
-                    Agent Swarm
+                    智能体集群
                   </button>
                 </div>
               )}
@@ -830,7 +830,7 @@ export function Agent() {
                 type="button"
                 onClick={handleExport}
                 className="px-3 py-2.5 rounded-xl border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                title="Export chat"
+                title="导出对话"
               >
                 <Download className="h-4 w-4" />
               </button>
@@ -840,7 +840,7 @@ export function Agent() {
                 type="button"
                 onClick={handleCancel}
                 className="px-4 py-2.5 rounded-xl bg-destructive text-destructive-foreground text-sm font-medium hover:opacity-90 transition-opacity"
-                title="Stop generation"
+                title="停止生成"
               >
                 <Square className="h-4 w-4" />
               </button>

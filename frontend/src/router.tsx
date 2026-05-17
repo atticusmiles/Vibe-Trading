@@ -21,6 +21,9 @@ const Tools = lazy(() =>
 const Correlation = lazy(() =>
   import("@/pages/Correlation").then((m) => ({ default: m.Correlation })),
 );
+const Trends = lazy(() => import("@/pages/Trends").then((m) => ({ default: m.Trends })));
+const Industries = lazy(() => import("@/pages/Industries").then((m) => ({ default: m.Industries })));
+const Stocks = lazy(() => import("@/pages/Stocks").then((m) => ({ default: m.Stocks })));
 
 function PageLoader() {
   return (
@@ -54,6 +57,9 @@ export const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { path: "/", element: <RequireAuth>{wrap(Home)}</RequireAuth> },
+      { path: "/trends", element: <RequireAuth>{wrap(Trends)}</RequireAuth> },
+      { path: "/industries", element: <RequireAuth>{wrap(Industries)}</RequireAuth> },
+      { path: "/stocks", element: <RequireAuth>{wrap(Stocks)}</RequireAuth> },
       { path: "/agent", element: <RequireAuth>{wrap(Agent)}</RequireAuth> },
       { path: "/settings", element: <RequireAuth>{wrap(Settings)}</RequireAuth> },
       { path: "/tools", element: <RequireAuth>{wrap(Tools)}</RequireAuth> },

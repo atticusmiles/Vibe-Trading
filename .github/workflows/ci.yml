@@ -157,6 +157,9 @@ jobs:
             sudo chown -R $(whoami) "$COMPOSE_DIR"
             cd "$COMPOSE_DIR"
 
+            # Prepare data directory
+            mkdir -p "$COMPOSE_DIR/data"
+
             # Write docker-compose.yml
             cat > docker-compose.yml <<DCEOF
             services:
@@ -170,10 +173,8 @@ jobs:
                 env_file:
                   - .env
                 volumes:
-                  - vibe-data:/data
+                  - ./data:/data
                 restart: unless-stopped
-            volumes:
-              vibe-data:
             DCEOF
 
             # Fetch environment variables from GitHub API

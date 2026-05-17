@@ -143,6 +143,36 @@ export const api = {
   swarmSseUrl: (id: string) => withAuthQuery(`${BASE}/swarm/runs/${id}/events`),
   cancelSwarmRun: (id: string) =>
     request<{ status: string }>(`/swarm/runs/${id}/cancel`, { method: "POST" }),
+
+  // Fact Tables
+  listTrends: (status?: string) =>
+    request<TrendItem[]>(`/api/trends${status ? `?status=${status}` : ""}`),
+  getTrend: (id: number) => request<TrendItem>(`/api/trends/${id}`),
+  createTrend: (data: { title: string; level?: string; confidence?: number; evidence?: string }) =>
+    request<TrendItem>("/api/trends", { method: "POST", body: JSON.stringify(data) }),
+  updateTrend: (id: number, data: Partial<TrendItem>) =>
+    request<TrendItem>(`/api/trends/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteTrend: (id: number) => request<{ id: number; status: string }>(`/api/trends/${id}`, { method: "DELETE" }),
+
+  listIndustries: (status?: string) =>
+    request<IndustryItem[]>(`/api/industries${status ? `?status=${status}` : ""}`),
+  getIndustry: (id: number) => request<IndustryItem>(`/api/industries/${id}`),
+  createIndustry: (data: { name: string; confidence?: number; reason?: string; research_report?: string; recommended_stocks?: string[] }) =>
+    request<IndustryItem>("/api/industries", { method: "POST", body: JSON.stringify(data) }),
+  updateIndustry: (id: number, data: Partial<IndustryItem>) =>
+    request<IndustryItem>(`/api/industries/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteIndustry: (id: number) => request<{ id: number; status: string }>(`/api/industries/${id}`, { method: "DELETE" }),
+
+  listStocks: (status?: string) =>
+    request<StockItem[]>(`/api/stocks${status ? `?status=${status}` : ""}`),
+  getStock: (id: number) => request<StockItem>(`/api/stocks/${id}`),
+  createStock: (data: { name: string; code: string; confidence?: number; industry_name?: string; position?: number; advice?: string; target_price?: number; stop_loss?: number; reason?: string }) =>
+    request<StockItem>("/api/stocks", { method: "POST", body: JSON.stringify(data) }),
+  updateStock: (id: number, data: Partial<StockItem>) =>
+    request<StockItem>(`/api/stocks/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteStock: (id: number) => request<{ id: number; status: string }>(`/api/stocks/${id}`, { method: "DELETE" }),
+
+  getDashboard: () => request<DashboardData>("/api/dashboard"),
 };
 
 // --- Swarm types ---
@@ -320,4 +350,67 @@ export interface MessageItem {
   created_at: string;
   linked_attempt_id?: string;
   metadata?: Record<string, unknown>;
+}
+
+// --- Fact Table types ---
+
+export interface TrendItem {
+  id: number;
+  user_id: number;
+  status: string;
+  title: string;
+  level: string | null;
+  confidence: number;
+  evidence: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface IndustryItem {
+  id: number;
+  user_id: number;
+  status: string;
+  name: string;
+  confidence: number;
+  reason: string | null;
+  research_report: string | null;
+  recommended_stocks: string;
+  recommended_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface StockItem {
+  id: number;
+  user_id: number;
+  status: string;
+  name: string;
+  code: string;
+  confidence: number;
+  industry_name: string | null;
+  position: number | null;
+  advice: string | null;
+  target_price: number | null;
+  stop_loss: number | null;
+  reason: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface RecentlyUpdatedItem {
+  type: "trend" | "industry" | "stock";
+  id: number;
+  title: string;
+  confidence: number;
+  updated_at: string | null;
+}
+
+export interface DashboardData {
+  stats: {
+    trends: Record<string, number>;
+    industries: Record<string, number>;
+    stocks: Record<string, number>;
+  };
+  recently_updated: RecentlyUpdatedItem[];
+  latest_runs: Array<{ run_id: string }>;
 }

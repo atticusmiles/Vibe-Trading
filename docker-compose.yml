@@ -12,7 +12,7 @@ services:
     env_file:
       - agent/.env
     volumes:
-      - vibe-data:/data
+      - ./data:/data
     restart: unless-stopped
 
   # Development frontend (only used with: docker compose --profile frontend up)
@@ -31,6 +31,3 @@ services:
     depends_on:
       vibe-trading:
         condition: service_started
-
-volumes:
-  vibe-data:

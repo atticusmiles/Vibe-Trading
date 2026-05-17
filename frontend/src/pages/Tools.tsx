@@ -12,7 +12,7 @@ const TABS = ["correlation"] as const;
 type TabKey = (typeof TABS)[number];
 
 const tabMeta: Record<TabKey, { label: string; icon: typeof BarChart3 }> = {
-  correlation: { label: "Correlation Matrix", icon: BarChart3 },
+  correlation: { label: "相关性矩阵", icon: BarChart3 },
 };
 
 const WINDOWS = [30, 60, 90, 180, 365] as const;
@@ -35,7 +35,7 @@ function CorrelationPage() {
       setLabels(result.labels);
       setMatrix(result.matrix);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to compute correlation");
+      setError(e instanceof Error ? e.message : "相关性计算失败");
     } finally {
       setLoading(false);
     }
@@ -45,7 +45,7 @@ function CorrelationPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 rounded-lg border bg-card p-5 shadow-sm">
         <label className="grid gap-1.5">
-          <span className={labelClass}>Asset Codes</span>
+          <span className={labelClass}>资产代码</span>
           <input
             type="text"
             value={codes}
@@ -53,12 +53,12 @@ function CorrelationPage() {
             placeholder="BTC-USDT,ETH-USDT,SPY"
             className={fieldClass}
           />
-          <span className="text-xs text-muted-foreground">Comma-separated, e.g. BTC-USDT,ETH-USDT,AAPL,SPY</span>
+          <span className="text-xs text-muted-foreground">逗号分隔，例如 BTC-USDT,ETH-USDT,AAPL,SPY</span>
         </label>
 
         <div className="flex flex-wrap gap-6">
           <label className="grid gap-1.5">
-            <span className={labelClass}>Window</span>
+            <span className={labelClass}>窗口</span>
             <div className="flex gap-1.5">
               {WINDOWS.map((w) => (
                 <button
@@ -75,7 +75,7 @@ function CorrelationPage() {
           </label>
 
           <label className="grid gap-1.5">
-            <span className={labelClass}>Method</span>
+            <span className={labelClass}>方法</span>
             <div className="flex gap-1.5">
               {(["pearson", "spearman"] as const).map((m) => (
                 <button
@@ -98,7 +98,7 @@ function CorrelationPage() {
           className="self-start inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BarChart3 className="h-3.5 w-3.5" />}
-          Compute
+          计算
         </button>
       </div>
 
@@ -121,8 +121,8 @@ export function Tools() {
     <div>
       <div className="sticky top-0 z-10 bg-background border-b px-6 py-4">
         <div className="mb-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Tools</h1>
-          <p className="text-sm text-muted-foreground">Analysis and utility tools</p>
+          <h1 className="text-2xl font-semibold tracking-tight">工具</h1>
+          <p className="text-sm text-muted-foreground">分析和实用工具</p>
         </div>
 
         <div className="flex gap-1 rounded-lg bg-muted p-1">

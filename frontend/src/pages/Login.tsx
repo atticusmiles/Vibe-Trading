@@ -19,24 +19,24 @@ export function Login() {
     try {
       if (tab === "register") {
         await api.register(username, password);
-        toast.success("Registration successful. Please log in.");
+        toast.success("注册成功，请登录。");
         setTab("login");
         setPassword("");
       } else {
         const res = await api.login(username, password);
         setApiAuthKey(res.access_token);
-        toast.success("Logged in");
+        toast.success("登录成功");
         navigate("/", { replace: true });
       }
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 409) {
-          toast.error("Username already exists");
+          toast.error("用户名已存在");
         } else {
           toast.error(err.message);
         }
       } else {
-        toast.error("An error occurred");
+        toast.error("发生错误");
       }
     } finally {
       setLoading(false);
@@ -61,7 +61,7 @@ export function Login() {
               tab === "login" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Login
+            登录
           </button>
           <button
             type="button"
@@ -70,13 +70,13 @@ export function Login() {
               tab === "register" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Register
+            注册
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium">Username</label>
+            <label className="mb-1 block text-sm font-medium">用户名</label>
             <input
               type="text"
               value={username}
@@ -85,11 +85,11 @@ export function Login() {
               minLength={3}
               maxLength={32}
               className={fieldClass}
-              placeholder="3-32 characters"
+              placeholder="3-32 个字符"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Password</label>
+            <label className="mb-1 block text-sm font-medium">密码</label>
             <input
               type="password"
               value={password}
@@ -98,11 +98,11 @@ export function Login() {
               minLength={8}
               maxLength={128}
               className={fieldClass}
-              placeholder="8-128 characters"
+              placeholder="8-128 个字符"
             />
           </div>
           <button type="submit" disabled={loading} className={btnClass}>
-            {loading ? "..." : tab === "login" ? "Login" : "Register"}
+            {loading ? "..." : tab === "login" ? "登录" : "注册"}
           </button>
         </form>
       </div>

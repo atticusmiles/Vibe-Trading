@@ -83,7 +83,7 @@ export function RunDetail() {
       </div>
     );
   }
-  if (!run) return <div className="p-8 text-red-500">Run not found</div>;
+  if (!run) return <div className="p-8 text-red-500">运行记录未找到</div>;
 
   const ok = run.status === "success";
 
@@ -95,7 +95,7 @@ export function RunDetail() {
           <button
             onClick={() => navigate(-1)}
             className="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-            title="Go back"
+            title="返回"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -162,8 +162,8 @@ function ChartTab({ run }: { run: RunData }) {
   if (entries.length === 0 && !hasEquity) {
     return (
       <div className="p-8 text-center text-muted-foreground space-y-2">
-        <p className="text-sm">No chart data available</p>
-        <p className="text-xs">The backtest engine may not have generated price data. Check the artifacts/ directory.</p>
+        <p className="text-sm">暂无图表数据</p>
+        <p className="text-xs">回测引擎可能未生成价格数据。请检查 artifacts/ 目录。</p>
       </div>
     );
   }
@@ -178,7 +178,7 @@ function ChartTab({ run }: { run: RunData }) {
       ))}
       {hasEquity && (
         <div>
-          <h3 className="text-sm font-medium mb-1">Equity & Drawdown</h3>
+          <h3 className="text-sm font-medium mb-1">权益与回撤</h3>
           <EquityChart data={run.equity_curve!} height={280} />
         </div>
       )}
@@ -188,18 +188,18 @@ function ChartTab({ run }: { run: RunData }) {
 
 function TradesTab({ run }: { run: RunData }) {
   const trades = run.trade_log || [];
-  if (trades.length === 0) return <div className="p-8 text-muted-foreground text-sm">No trades recorded.</div>;
+  if (trades.length === 0) return <div className="p-8 text-muted-foreground text-sm">暂无交易记录。</div>;
   return (
     <div className="p-4">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b text-left text-muted-foreground">
-            <th className="py-2 pr-4">Time</th>
-            <th className="py-2 pr-4">Code</th>
-            <th className="py-2 pr-4">Side</th>
-            <th className="py-2 pr-4">Price</th>
-            <th className="py-2 pr-4">Qty</th>
-            <th className="py-2">Reason</th>
+            <th className="py-2 pr-4">时间</th>
+            <th className="py-2 pr-4">代码</th>
+            <th className="py-2 pr-4">方向</th>
+            <th className="py-2 pr-4">价格</th>
+            <th className="py-2 pr-4">数量</th>
+            <th className="py-2">原因</th>
           </tr>
         </thead>
         <tbody>
@@ -222,7 +222,7 @@ function TradesTab({ run }: { run: RunData }) {
 function CodeTab({ code }: { code: Record<string, string> }) {
   const files = Object.entries(code);
   const [active, setActive] = useState(files[0]?.[0] || "");
-  if (files.length === 0) return <div className="p-8 text-muted-foreground text-sm">No code files.</div>;
+  if (files.length === 0) return <div className="p-8 text-muted-foreground text-sm">暂无代码文件。</div>;
   return (
     <div className="flex flex-col h-full">
       <div className="flex gap-1 p-2 border-b">

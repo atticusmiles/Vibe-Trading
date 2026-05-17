@@ -60,11 +60,11 @@ function StatusIcon({ status }: { status: SwarmAgent["status"] }) {
 
 function StatusLabel({ status }: { status: SwarmAgent["status"] }) {
   switch (status) {
-    case "running": return <span className="text-primary font-medium">running</span>;
-    case "done": return <span className="text-emerald-500 font-medium">done</span>;
-    case "failed": return <span className="text-red-500 font-medium">failed</span>;
-    case "retry": return <span className="text-amber-500 font-medium">retry</span>;
-    default: return <span className="text-muted-foreground/50">waiting</span>;
+    case "running": return <span className="text-primary font-medium">运行中</span>;
+    case "done": return <span className="text-emerald-500 font-medium">完成</span>;
+    case "failed": return <span className="text-red-500 font-medium">失败</span>;
+    case "retry": return <span className="text-amber-500 font-medium">重试</span>;
+    default: return <span className="text-muted-foreground/50">等待中</span>;
   }
 }
 
@@ -108,7 +108,7 @@ export function SwarmDashboard(props: SwarmDashboardProps) {
               </span>
             ) : (
               <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary font-medium">
-                RUNNING
+                运行中
               </span>
             )}
           </div>
@@ -200,7 +200,7 @@ export function SwarmDashboard(props: SwarmDashboardProps) {
       {/* Final report */}
       {finalReport && (
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-5 py-4">
-          <div className="text-xs font-semibold text-emerald-500 mb-3">Final Report</div>
+          <div className="text-xs font-semibold text-emerald-500 mb-3">最终报告</div>
           <div className="prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{finalReport}</ReactMarkdown>
           </div>

@@ -45,7 +45,7 @@ export const PineScriptViewer = memo(function PineScriptViewer({ code, onClose }
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
             >
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              {copied ? "Copied" : "Copy"}
+              {copied ? "已复制" : "复制"}
             </button>
             <a
               href="https://www.tradingview.com/pine-script-docs/welcome/"
@@ -54,7 +54,7 @@ export const PineScriptViewer = memo(function PineScriptViewer({ code, onClose }
               className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               <ExternalLink className="h-3 w-3" />
-              Docs
+              文档
             </a>
             <button
               onClick={onClose}
@@ -75,7 +75,7 @@ export const PineScriptViewer = memo(function PineScriptViewer({ code, onClose }
         {/* Footer */}
         <div className="px-4 py-2.5 border-t bg-muted/30">
           <p className="text-xs text-muted-foreground">
-            TradingView Pine Editor &rarr; New blank indicator &rarr; Paste code &rarr; Add to Chart
+            TradingView Pine 编辑器 &rarr; 新建空白指标 &rarr; 粘贴代码 &rarr; 添加到图表
           </p>
         </div>
       </div>

@@ -247,6 +247,12 @@ app.add_middleware(
 )
 
 
+# Fact table routes (trends, industries, stocks, dashboard)
+from src.fact_tables import register_fact_table_routes  # noqa: E402
+
+register_fact_table_routes(app)
+
+
 # ============================================================================
 # Authentication (JWT + legacy fallback)
 # ============================================================================

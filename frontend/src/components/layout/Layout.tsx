@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { BarChart3, Bot, LogOut, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Wrench } from "lucide-react";
+import { BarChart3, Bot, LogOut, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Wrench, TrendingUp, Factory, CandlestickChart } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
@@ -12,6 +12,9 @@ import { ConnectionBanner } from "@/components/layout/ConnectionBanner";
 
 const NAV = [
   { to: "/", icon: BarChart3, key: "home" as const },
+  { to: "/trends", icon: TrendingUp, key: "trends" as const },
+  { to: "/industries", icon: Factory, key: "industries" as const },
+  { to: "/stocks", icon: CandlestickChart, key: "stocks" as const },
   { to: "/agent", icon: Bot, key: "agent" as const },
   { to: "/tools", icon: Wrench, key: "tools" as const },
   { to: "/settings", icon: Settings, key: "settings" as const },
@@ -55,7 +58,7 @@ export function Layout() {
     try {
       await api.deleteSession(sid);
       setSessions((prev) => prev.filter((s) => s.session_id !== sid));
-    } catch (err) { toast.error("Failed to delete session"); }
+    } catch (err) { toast.error("会话删除失败"); }
     setDeleteTarget(null);
   };
 
@@ -64,7 +67,7 @@ export function Layout() {
     try {
       await api.renameSession(sid, renameValue.trim());
       setSessions((prev) => prev.map((s) => s.session_id === sid ? { ...s, title: renameValue.trim() } : s));
-    } catch { toast.error("Failed to rename session"); }
+    } catch { toast.error("会话重命名失败"); }
     setRenameTarget(null);
   };
 
@@ -86,7 +89,7 @@ export function Layout() {
               <button
                 onClick={() => { clearApiAuthKey(); navigate("/login", { replace: true }); }}
                 className="text-muted-foreground hover:text-foreground transition"
-                title="Logout"
+                title="退出登录"
               >
                 <LogOut className="h-4 w-4" />
               </button>
@@ -187,7 +190,7 @@ export function Layout() {
                         <button
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRenameTarget(s.session_id); setRenameValue(s.title || ""); }}
                           className="p-1 text-muted-foreground hover:text-foreground rounded"
-                          title="Rename"
+                          title="重命名"
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
@@ -217,7 +220,7 @@ export function Layout() {
               <button onClick={toggle} className="p-1.5 text-muted-foreground hover:text-foreground rounded transition-colors" title={dark ? t.lightMode : t.darkMode}>
                 {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
               </button>
-              <button onClick={() => setCollapsed(false)} className="p-1.5 text-muted-foreground hover:text-foreground rounded transition-colors" title="Expand">
+              <button onClick={() => setCollapsed(false)} className="p-1.5 text-muted-foreground hover:text-foreground rounded transition-colors" title="展开">
                 <ChevronsRight className="h-3.5 w-3.5" />
               </button>
             </>
@@ -235,7 +238,7 @@ export function Layout() {
                   <button
                     onClick={() => setCollapsed(true)}
                     className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
-                    title="Collapse"
+                    title="收起"
                   >
                     <ChevronsLeft className="h-3.5 w-3.5" />
                   </button>
