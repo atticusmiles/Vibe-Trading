@@ -175,11 +175,12 @@ export const api = {
   getDashboard: () => request<DashboardData>("/api/dashboard"),
 
   // Proposals
-  listProposals: (params?: { type?: string; status?: string; target_id?: number; page?: number; per_page?: number }) => {
+  listProposals: (params?: { type?: string; status?: string; target_id?: number; since?: string; page?: number; per_page?: number }) => {
     const qs = new URLSearchParams();
     if (params?.type) qs.set("type", params.type);
     if (params?.status) qs.set("status", params.status);
     if (params?.target_id != null) qs.set("target_id", String(params.target_id));
+    if (params?.since) qs.set("since", params.since);
     if (params?.page) qs.set("page", String(params.page));
     if (params?.per_page) qs.set("per_page", String(params.per_page));
     const query = qs.toString();

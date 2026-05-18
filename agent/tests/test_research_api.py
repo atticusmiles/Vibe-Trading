@@ -471,6 +471,45 @@ class TestProposalsAPI:
         }, headers=h)
         assert res.status_code == 400
 
+    def test_since_filter(self, client):
+        token = _register_and_login(client)
+        h = _auth(token)
+
+        # Create a proposal now
+        client.post("/api/proposals", json={
+            "target_type": "trend", "action": "create",
+            "title": "近期提案", "confidence": 5,
+            "payload": json.dumps({"title": "since测试"}),
+        }, headers=h)
+
+        # With a recent since date, should find it
+        res = client.get("/api/proposals?since=2020-01-01", headers=h)
+        assert res.status_code == 200
+        assert res.json()["total"] >= 1
+
+        # With a far-future since date, should find nothing
+        res = client.get("/api/proposals?since=2099-01-01", headers=h)
+        assert res.json()["total"] == 0
+
+    def test_cancel_sets_cancelled_status(self, client):
+        token = _register_and_login(client)
+        h = _auth(token)
+
+        r = client.post("/api/proposals", json={
+            "target_type": "trend", "action": "create",
+            "title": "取消状态", "confidence": 5,
+            "payload": json.dumps({"title": "取消状态测试"}),
+        }, headers=h)
+        pid = r.json()["id"]
+
+        res = client.post(f"/api/proposals/{pid}/cancel", headers=h)
+        assert res.status_code == 200
+        assert res.json()["status"] == "cancelled"
+
+        # Filter by cancelled status
+        res = client.get("/api/proposals?status=cancelled", headers=h)
+        assert res.json()["total"] == 1
+
 
 # ============================================================================
 # Confidence-based eviction (E2E)

@@ -261,6 +261,7 @@ def register_proposal_routes(app: FastAPI) -> None:
         type: Optional[str] = Query(None),
         status: Optional[str] = Query(None),
         target_id: Optional[int] = Query(None),
+        since: Optional[str] = Query(None, description="ISO date, e.g. 2026-05-01"),
         page: int = Query(1, ge=1),
         per_page: int = Query(20, ge=1, le=100),
         user_id: int = Depends(require_real_user),
@@ -276,6 +277,9 @@ def register_proposal_routes(app: FastAPI) -> None:
         if target_id is not None:
             conditions.append("target_id = ?")
             params.append(target_id)
+        if since:
+            conditions.append("created_at >= ?")
+            params.append(since)
 
         where = " AND ".join(conditions)
         with get_db() as conn:

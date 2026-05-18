@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/fact-tables/EmptyState";
 import { ProposalDetailModal } from "@/components/proposals/ProposalDetailModal";
 import { api, type ProposalItem, type ProposalListResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { FileCheck, PlusCircle, Pencil } from "lucide-react";
+import { FileCheck, PlusCircle, Pencil, ChevronDown, Calendar } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -19,6 +19,12 @@ const ACTION_COLORS: Record<string, string> = {
   delete: "bg-red-500/15 text-red-500",
 };
 const TYPE_LABELS: Record<string, string> = { trend: "趋势", industry: "行业", stock: "自选股" };
+const STATUS_OPTIONS: { label: string; value: string }[] = [
+  { label: "待审批", value: "pending" },
+  { label: "已采纳", value: "adopted" },
+  { label: "已拒绝", value: "rejected" },
+  { label: "已取消", value: "cancelled" },
+];
 const LEVELS = ["long-term", "mid-term", "short-term"];
 const LEVEL_LABELS: Record<string, string> = { "long-term": "长期", "mid-term": "中期", "short-term": "短期" };
 const inputCls = "w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary";
@@ -27,13 +33,26 @@ type Mode = "view" | "add";
 
 const EMPTY_DATA: ProposalListResponse = { items: [], total: 0, page: 1, per_page: 50 };
 
+/** Return ISO date string for N days ago. */
+function daysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
 export function Proposals() {
   const [data, setData] = useState<ProposalListResponse>(EMPTY_DATA);
-  const [typeFilter, setTypeFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [mode, setMode] = useState<Mode>("view");
+
+  // Filters
+  const [typeFilter, setTypeFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [sinceDays, setSinceDays] = useState(30);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [dateOpen, setDateOpen] = useState(false);
 
   // Detail modal
   const [detailProposal, setDetailProposal] = useState<ProposalItem | null>(null);
@@ -63,6 +82,8 @@ export function Proposals() {
     try {
       const result = await api.listProposals({
         ...(typeFilter ? { type: typeFilter } : {}),
+        ...(statusFilter ? { status: statusFilter } : {}),
+        since: daysAgo(sinceDays),
         per_page: 50,
       });
       setData(result);
@@ -71,9 +92,17 @@ export function Proposals() {
     } finally {
       setLoading(false);
     }
-  }, [typeFilter]);
+  }, [typeFilter, statusFilter, sinceDays]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    if (!statusOpen && !dateOpen) return;
+    const close = () => { setStatusOpen(false); setDateOpen(false); };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [statusOpen, dateOpen]);
 
   const filtered = useMemo(() => {
     if (!search) return data.items;
@@ -155,6 +184,16 @@ export function Proposals() {
     }
   };
 
+  const typeTabs = [
+    { label: "全部", value: "" },
+    { label: "趋势", value: "trend" },
+    { label: "行业", value: "industry" },
+    { label: "自选股", value: "stock" },
+  ];
+
+  const statusLabel = STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label || "全部状态";
+  const dateLabel = sinceDays === 0 ? "全部时间" : `${sinceDays}天内`;
+
   return (
     <div className="flex h-full flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
@@ -162,6 +201,83 @@ export function Proposals() {
         <button onClick={startAdd} className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">
           <PlusCircle className="h-3.5 w-3.5" /> 新建提案
         </button>
+      </div>
+
+      {/* Type tabs */}
+      <div className="flex gap-1">
+        {typeTabs.map((tab) => (
+          <button
+            key={tab.value}
+            onClick={() => setTypeFilter(tab.value)}
+            className={cn(
+              "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+              typeFilter === tab.value
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted",
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+
+        <div className="flex-1" />
+
+        {/* Status dropdown */}
+        <div className="relative">
+          <button
+            onClick={(e) => { e.stopPropagation(); setStatusOpen(!statusOpen); setDateOpen(false); }}
+            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+          >
+            {statusLabel} <ChevronDown className="h-3 w-3" />
+          </button>
+          {statusOpen && (
+            <div className="absolute right-0 top-full z-10 mt-1 w-28 rounded-md border bg-card py-1 shadow-md" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={() => { setStatusFilter(""); setStatusOpen(false); }}
+                className={cn("flex w-full items-center px-3 py-1.5 text-xs hover:bg-muted", !statusFilter && "font-medium text-primary")}
+              >
+                全部状态
+              </button>
+              {STATUS_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => { setStatusFilter(opt.value); setStatusOpen(false); }}
+                  className={cn("flex w-full items-center px-3 py-1.5 text-xs hover:bg-muted", statusFilter === opt.value && "font-medium text-primary")}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Date range dropdown */}
+        <div className="relative">
+          <button
+            onClick={(e) => { e.stopPropagation(); setDateOpen(!dateOpen); setStatusOpen(false); }}
+            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+          >
+            <Calendar className="h-3 w-3" /> {dateLabel}
+          </button>
+          {dateOpen && (
+            <div className="absolute right-0 top-full z-10 mt-1 w-28 rounded-md border bg-card py-1 shadow-md" onClick={(e) => e.stopPropagation()}>
+              {([
+                { label: "7天内", days: 7 },
+                { label: "30天内", days: 30 },
+                { label: "90天内", days: 90 },
+                { label: "全部时间", days: 0 },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.days}
+                  onClick={() => { setSinceDays(opt.days); setDateOpen(false); }}
+                  className={cn("flex w-full items-center px-3 py-1.5 text-xs hover:bg-muted", sinceDays === opt.days && "font-medium text-primary")}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <MasterDetailLayout
