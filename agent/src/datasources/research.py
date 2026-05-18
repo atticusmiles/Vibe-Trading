@@ -7,11 +7,12 @@ Sources:
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import time
 from typing import Any
 
-import pandas as pd
 import requests
 
 from .base import NoDataAvailableError, cache_news, normalize_code
@@ -43,7 +44,12 @@ async def get_consensus_eps(code: str) -> dict[str, Any]:
 
 
 async def _consensus_eps_ths(code: str) -> dict[str, Any]:
-    """Parse THS consensus EPS from HTML table."""
+    """Parse THS consensus EPS from embedded JSON data in worth.html.
+
+    THS renders data as JSON inside a hidden div:
+    <div id="yjycData" class="none">[["2024","68.64","862.28","SJ"],...]</div>
+    Each row: [year, EPS, net_profit_yi, type(SJ=actual/YC=forecast)]
+    """
     url = f"https://basic.10jqka.com.cn/new/{code}/worth.html"
     headers = {
         "User-Agent": UA,
@@ -52,46 +58,39 @@ async def _consensus_eps_ths(code: str) -> dict[str, Any]:
     r = requests.get(url, headers=headers, timeout=15)
     r.encoding = "gbk"
 
-    dfs = pd.read_html(r.text)
-    target_df = None
-    for df in dfs:
-        cols = [str(c) for c in df.columns]
-        if any("每股收益" in c or "均值" in c for c in cols):
-            target_df = df
-            break
+    m = re.search(r'yjycData[^>]*>(.*?)</div>', r.text, re.DOTALL)
+    if not m:
+        raise NoDataAvailableError(f"THS: no EPS data for {code}")
 
-    if target_df is None or target_df.empty:
-        raise NoDataAvailableError(f"THS: no EPS forecast for {code}")
+    try:
+        raw_data = json.loads(m.group(1).strip())
+    except (json.JSONDecodeError, ValueError):
+        raise NoDataAvailableError(f"THS: failed to parse EPS data for {code}")
 
-    # Extract latest year row
-    first_row = target_df.iloc[0]
-    cols = [str(c) for c in target_df.columns]
+    if not raw_data:
+        raise NoDataAvailableError(f"THS: empty EPS data for {code}")
 
-    result: dict[str, Any] = {"code": code, "years": []}
+    actual = [r for r in raw_data if len(r) >= 4 and r[3] == "SJ"]
+    forecast = [r for r in raw_data if len(r) >= 4 and r[3] == "YC"]
 
-    for _, row in target_df.iterrows():
-        row_dict = {}
-        for c in cols:
-            row_dict[c] = row[c]
-        result["years"].append(row_dict)
+    actual_list = [{"year": r[0], "eps": float(r[1]), "net_profit": float(r[2])} for r in actual]
+    forecast_list = [{"year": r[0], "eps": float(r[1]), "net_profit": float(r[2])} for r in forecast]
 
-    # Try to find mean value and org count from column names
-    mean_col = next((c for c in cols if "均值" in c), None)
-    org_col = next((c for c in cols if "机构" in c or "预测机构" in c), None)
+    result: dict[str, Any] = {
+        "code": code,
+        "actual": actual_list,
+        "forecast": forecast_list,
+    }
 
-    if mean_col:
-        try:
-            result["eps_mean"] = float(first_row[mean_col])
-        except (ValueError, TypeError):
-            result["eps_mean"] = 0
-    if org_col:
-        try:
-            result["org_count"] = int(first_row[org_col])
-        except (ValueError, TypeError):
-            result["org_count"] = 0
+    if forecast_list:
+        result["eps_mean"] = forecast_list[0]["eps"]
+        result["forecast_year"] = forecast_list[0]["year"]
 
-    # Warning for insufficient coverage
-    org_count = result.get("org_count", 0)
+    # Extract org count from the summary text on the page
+    org_match = re.search(r'(\d+)\s*家.*?（|(\d+)\s*家.*?机构|共有\s*(\d+)\s*家', r.text)
+    org_count = int(next(g for g in org_match.groups() if g)) if org_match and any(org_match.groups()) else 0
+    result["org_count"] = org_count
+
     if org_count < 3:
         result["warning"] = "机构覆盖不足，数据不可信"
 

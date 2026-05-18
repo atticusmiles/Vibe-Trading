@@ -250,8 +250,9 @@ async def _quotes_mootdx(codes: list[str]) -> dict[str, Quote]:
 
     result: dict[str, Quote] = {}
     for _, row in df.iterrows():
-        symbol = str(row.get("symbol", ""))
-        orig_code = market_map.get(symbol, symbol)
+        # mootdx returns "code" column (plain 6-digit), not "symbol"
+        stock_code = str(row.get("code", "") or row.get("symbol", ""))
+        orig_code = market_map.get(stock_code, stock_code)
         pre_close = float(row.get("last_close", 0) or 0)
         price = float(row.get("price", 0) or 0)
         change = price - pre_close if pre_close else 0

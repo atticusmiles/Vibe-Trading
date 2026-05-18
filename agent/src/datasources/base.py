@@ -157,12 +157,23 @@ _client = None
 
 
 def get_mootdx_client():
-    """Lazy-init a mootdx Quotes client (TCP, auto speed-test on first call)."""
-    global _client
-    if _client is None:
-        from mootdx.quotes import Quotes
+    """Create a mootdx Quotes client (TCP).
 
-        _client = Quotes.factory(market="std")
+    Caches the client instance. On first call or when the cached
+    client becomes unhealthy, creates a new one (no bestip scan).
+    """
+    global _client
+    from mootdx.quotes import Quotes
+
+    if _client is not None:
+        try:
+            if _client.server and len(_client.server) == 2:
+                return _client
+        except Exception:
+            pass
+        _client = None
+
+    _client = Quotes.factory(market="std")
     return _client
 
 

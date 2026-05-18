@@ -130,14 +130,20 @@ async def _flash_news_akshare(limit: int) -> list[NewsItem]:
 # ---------------------------------------------------------------------------
 
 async def get_stock_news(code: str, limit: int = 20) -> list[NewsItem]:
-    """Individual stock news from eastmoney."""
+    """Individual stock news.  Primary: eastmoney JSONP, fallback: akshare."""
     code = normalize_code(code)
     cache_key = f"stock_news:{code}:{limit}"
     cached = cache_news.get(cache_key)
     if cached is not None:
         return cached
 
-    items = await _stock_news_eastmoney(code, limit)
+    async def _primary() -> list[NewsItem]:
+        return await _stock_news_eastmoney(code, limit)
+
+    async def _fb() -> list[NewsItem]:
+        return await _stock_news_akshare(code, limit)
+
+    items = await fallback(_primary, _fb, label=f"get_stock_news({code})")
     cache_news.set(cache_key, items)
     return items
 
@@ -180,6 +186,28 @@ async def _stock_news_eastmoney(code: str, limit: int) -> list[NewsItem]:
 
     if not items:
         raise NoDataAvailableError(f"eastmoney: no news for {code}")
+    return items
+
+
+async def _stock_news_akshare(code: str, limit: int) -> list[NewsItem]:
+    """Fallback: akshare eastmoney stock news."""
+    try:
+        import akshare as ak
+    except ImportError:
+        raise NoDataAvailableError("akshare not installed")
+
+    df = ak.stock_news_em(symbol=code)
+    if df is None or df.empty:
+        raise NoDataAvailableError(f"akshare: no news for {code}")
+
+    items: list[NewsItem] = []
+    for _, row in df.head(limit).iterrows():
+        items.append(NewsItem(
+            title=str(row.get("新闻标题", "")),
+            content=str(row.get("新闻内容", ""))[:200],
+            time=str(row.get("发布时间", "")),
+            source=str(row.get("文章来源", "")),
+        ))
     return items
 
 

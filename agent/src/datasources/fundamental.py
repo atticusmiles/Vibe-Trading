@@ -141,7 +141,7 @@ async def get_financial_statements(
         return await _statements_baostock(code, year, quarter, report_type)
 
     async def _fb() -> list[dict[str, Any]]:
-        return await _statements_sina(code, report_type)
+        return await _statements_sina(code, year, quarter, report_type)
 
     return await fallback(_primary, _fb, label=f"get_financial_statements({code},{report_type})")
 
@@ -169,8 +169,10 @@ async def _statements_baostock(
     return rows
 
 
-async def _statements_sina(code: str, report_type: str) -> list[dict[str, Any]]:
-    """Fallback: fetch from sina finance."""
+async def _statements_sina(
+    code: str, year: int, quarter: int, report_type: str,
+) -> list[dict[str, Any]]:
+    """Fallback: fetch from sina finance, filter by year/quarter."""
     _SINA_TYPE_MAP = {"balance": "fzb", "income": "lrb", "cashflow": "llb"}
     sina_type = _SINA_TYPE_MAP.get(report_type, "lrb")
     prefix = "sh" if code.startswith("6") else "sz"
@@ -189,10 +191,19 @@ async def _statements_sina(code: str, report_type: str) -> list[dict[str, Any]]:
 
     result = d.get("result", {}).get("data", {})
     items = result.get(sina_type, [])
-    if isinstance(items, list) and items:
-        return items
+    if not isinstance(items, list) or not items:
+        raise NoDataAvailableError(f"sina: no {report_type} data for {code}")
 
-    raise NoDataAvailableError(f"sina: no {report_type} data for {code}")
+    # Filter by report period: quarter end dates are 0331/0630/0930/1231
+    q_end = f"{year}-{quarter * 3:02}-30"
+    matched = [
+        item for item in items
+        if any(
+            str(item.get(k, "")).startswith(q_end[:7])
+            for k in ("报告日", "报告期", "reportDate")
+        )
+    ]
+    return matched if matched else items[:1]
 
 
 # ---------------------------------------------------------------------------
