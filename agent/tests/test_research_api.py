@@ -327,7 +327,7 @@ class TestProposalsAPI:
 
         res = client.post(f"/api/proposals/{pid}/cancel", headers=h)
         assert res.status_code == 200
-        assert res.json()["status"] == "rejected"
+        assert res.json()["status"] == "cancelled"
 
     def test_update_proposal_lifecycle(self, client):
         token = _register_and_login(client)

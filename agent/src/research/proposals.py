@@ -6,8 +6,7 @@ import json
 import sqlite3
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Security, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from src.db import get_db
@@ -15,8 +14,6 @@ from .base import ALLOWED_FIELDS, get_conn, require_jwt, require_real_user
 from .trends import create_trend, delete_trend, get_trend, update_trend
 from .industries import create_industry, delete_industry, get_industry, update_industry
 from .stocks import create_stock, delete_stock, get_stock, update_stock
-
-_bearer = HTTPBearer(auto_error=False)
 
 DEFAULT_PROPOSAL_LIMIT = 10
 REJECT_COOLDOWN_HOURS = 1  # Minimum hours before re-proposing on same target
@@ -35,7 +32,7 @@ def _check_cooldown(conn: sqlite3.Connection, user_id: int, target_type: str, ta
     if not row or not row["reviewed_at"]:
         return
     from datetime import datetime, timedelta, timezone
-    reviewed = datetime.fromisoformat(row["reviewed_at"] + "+00:00")
+    reviewed = datetime.fromisoformat(row["reviewed_at"]).replace(tzinfo=timezone.utc)
     cooldown_end = reviewed + timedelta(hours=REJECT_COOLDOWN_HOURS)
     now = datetime.now(timezone.utc)
     if now < cooldown_end:
@@ -149,6 +146,8 @@ def _evict_if_lower_confidence(
     old_id = existing["id"]
     old_action = existing["action"]
     conn.execute("UPDATE proposals SET status = 'rejected', reviewed_at = datetime('now') WHERE id = ?", (old_id,))
+    # Evicted create-proposals: mark the fact row as rejected so it disappears from default views.
+    # This is intentional — the row was only created to back the proposal, not user-authored.
     if old_action == "create":
         _UPDATE[target_type](target_id, user_id, status="rejected", conn=conn)
     _write_audit_log(
@@ -235,7 +234,7 @@ def register_proposal_routes(app: FastAPI) -> None:
                 _evict_if_lower_confidence(conn, user_id, target_type, target_id, req.confidence, actor_id)
 
             try:
-                conn.execute(
+                cursor = conn.execute(
                     "INSERT INTO proposals "
                     "(user_id, target_type, target_id, action, status, title, summary, confidence, "
                     "payload, original_payload, run_id, source_agent) "
@@ -246,7 +245,7 @@ def register_proposal_routes(app: FastAPI) -> None:
             except sqlite3.IntegrityError:
                 raise HTTPException(status_code=409, detail="Conflicting pending proposal exists for this target")
 
-            proposal_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            proposal_id = cursor.lastrowid
             _evict_if_over_limit(conn, user_id, target_type, actor_id)
             _write_audit_log(
                 conn, user_id, "proposal_created", target_type, target_id,
@@ -395,7 +394,7 @@ def register_proposal_routes(app: FastAPI) -> None:
                 _UPDATE[target_type](target_id, user_id, status="rejected", conn=conn)
 
             conn.execute(
-                "UPDATE proposals SET status = 'rejected', reviewed_at = datetime('now') WHERE id = ?",
+                "UPDATE proposals SET status = 'cancelled', reviewed_at = datetime('now') WHERE id = ?",
                 (proposal_id,),
             )
             _write_audit_log(

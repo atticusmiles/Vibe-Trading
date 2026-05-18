@@ -88,14 +88,14 @@ def create_industry(
     stocks_json = json.dumps(recommended_stocks or [])
     with get_conn(conn) as c:
         try:
-            c.execute(
+            cursor = c.execute(
                 "INSERT INTO industries (user_id, status, name, confidence, reason, research_report, recommended_stocks) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (user_id, status, name, confidence, reason or "", research_report or "", stocks_json),
             )
-            row = c.execute("SELECT * FROM industries WHERE id = last_insert_rowid()").fetchone()
-        except Exception as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
+            row = c.execute("SELECT * FROM industries WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=409, detail="Duplicate entry or constraint violation")
     r = dict(row)
     r["recommended_count"] = len(recommended_stocks or [])
     return r

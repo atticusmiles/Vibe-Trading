@@ -8,7 +8,7 @@ from pathlib import Path
 
 from src.core.config import get_data_dir
 
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 
 _CREATE_SCHEMA_META = """
 CREATE TABLE IF NOT EXISTS _schema_meta (
@@ -174,7 +174,7 @@ _CREATE_PROPOSAL_TABLES = [
         target_type       TEXT NOT NULL,
         target_id         INTEGER NOT NULL,
         action            TEXT NOT NULL CHECK(action IN ('create','update','delete')),
-        status            TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','adopted','rejected')),
+        status            TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','adopted','rejected','cancelled')),
         title             TEXT NOT NULL,
         summary           TEXT,
         confidence        INTEGER DEFAULT 5 CHECK(confidence BETWEEN 0 AND 10),
@@ -210,6 +210,34 @@ _MIGRATIONS: list[tuple[int, list[str]]] = [
     (3, ["ALTER TABLE users DROP COLUMN api_keys"]),
     (4, _CREATE_FACT_TABLES),
     (5, _CREATE_PROPOSAL_TABLES),
+    (6, [
+        # Add 'cancelled' to proposals.status CHECK constraint (SQLite requires table rebuild)
+        "ALTER TABLE proposals RENAME TO _proposals_old",
+        """CREATE TABLE proposals (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id           INTEGER NOT NULL REFERENCES users(id),
+            target_type       TEXT NOT NULL,
+            target_id         INTEGER NOT NULL,
+            action            TEXT NOT NULL CHECK(action IN ('create','update','delete')),
+            status            TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','adopted','rejected','cancelled')),
+            title             TEXT NOT NULL,
+            summary           TEXT,
+            confidence        INTEGER DEFAULT 5 CHECK(confidence BETWEEN 0 AND 10),
+            payload           TEXT NOT NULL,
+            original_payload  TEXT,
+            run_id            TEXT,
+            source_agent      TEXT,
+            created_at        TEXT DEFAULT (datetime('now')),
+            reviewed_at       TEXT
+        )""",
+        "INSERT INTO proposals SELECT * FROM _proposals_old",
+        "DROP TABLE _proposals_old",
+        "CREATE INDEX IF NOT EXISTS idx_proposals_user_status ON proposals(user_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_proposals_target ON proposals(user_id, target_type, target_id)",
+        """CREATE UNIQUE INDEX IF NOT EXISTS idx_proposals_pending_target
+            ON proposals(user_id, target_type, target_id)
+            WHERE status = 'pending'""",
+    ]),
 ]
 
 

@@ -96,14 +96,14 @@ def create_stock(
 ) -> dict:
     with get_conn(conn) as c:
         try:
-            c.execute(
+            cursor = c.execute(
                 "INSERT INTO stocks (user_id, status, name, code, confidence, industry_name, position, advice, target_price, stop_loss, reason) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (user_id, status, name, code, confidence, industry_name or "", position, advice or "", target_price, stop_loss, reason or ""),
             )
-            row = c.execute("SELECT * FROM stocks WHERE id = last_insert_rowid()").fetchone()
-        except Exception as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
+            row = c.execute("SELECT * FROM stocks WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=409, detail="Duplicate entry or constraint violation")
     return dict(row)
 
 

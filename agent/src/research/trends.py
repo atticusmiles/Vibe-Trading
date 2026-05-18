@@ -76,13 +76,13 @@ def create_trend(
 ) -> dict:
     with get_conn(conn) as c:
         try:
-            c.execute(
+            cursor = c.execute(
                 "INSERT INTO trends (user_id, status, title, level, confidence, evidence) VALUES (?, ?, ?, ?, ?, ?)",
                 (user_id, status, title, level, confidence, evidence or ""),
             )
-            row = c.execute("SELECT * FROM trends WHERE id = last_insert_rowid()").fetchone()
-        except Exception as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
+            row = c.execute("SELECT * FROM trends WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=409, detail="Duplicate entry or constraint violation")
     return dict(row)
 
 
