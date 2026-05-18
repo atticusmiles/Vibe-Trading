@@ -7,7 +7,7 @@ import pandas as pd
 
 
 def _load_example_module():
-    path = Path("agent/src/skills/fundamental-filter/example_signal_engine.py")
+    path = Path(__file__).resolve().parent.parent / "src/skills/fundamental-filter/example_signal_engine.py"
     spec = importlib.util.spec_from_file_location("fundamental_filter_example", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
