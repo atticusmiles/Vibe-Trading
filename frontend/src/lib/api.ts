@@ -173,6 +173,27 @@ export const api = {
   deleteStock: (id: number) => request<{ id: number; status: string }>(`/api/stocks/${id}`, { method: "DELETE" }),
 
   getDashboard: () => request<DashboardData>("/api/dashboard"),
+
+  // Proposals
+  listProposals: (params?: { type?: string; status?: string; target_id?: number; page?: number; per_page?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.type) qs.set("type", params.type);
+    if (params?.status) qs.set("status", params.status);
+    if (params?.target_id != null) qs.set("target_id", String(params.target_id));
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.per_page) qs.set("per_page", String(params.per_page));
+    const query = qs.toString();
+    return request<ProposalListResponse>(`/api/proposals${query ? `?${query}` : ""}`);
+  },
+  getProposal: (id: number) => request<ProposalItem>(`/api/proposals/${id}`),
+  createProposal: (data: {
+    target_type: string; action: string; target_id?: number;
+    title: string; summary?: string; confidence?: number;
+    payload: string; run_id?: string; source_agent?: string;
+  }) => request<ProposalItem>("/api/proposals", { method: "POST", body: JSON.stringify(data) }),
+  adoptProposal: (id: number) => request<ProposalItem>(`/api/proposals/${id}/adopt`, { method: "POST" }),
+  rejectProposal: (id: number) => request<ProposalItem>(`/api/proposals/${id}/reject`, { method: "POST" }),
+  cancelProposal: (id: number) => request<ProposalItem>(`/api/proposals/${id}/cancel`, { method: "POST" }),
 };
 
 // --- Swarm types ---
@@ -413,4 +434,32 @@ export interface DashboardData {
   };
   recently_updated: RecentlyUpdatedItem[];
   latest_runs: Array<{ run_id: string }>;
+  pending_proposals: Record<string, number>;
+}
+
+// --- Proposal types ---
+
+export interface ProposalItem {
+  id: number;
+  user_id: number;
+  target_type: "trend" | "industry" | "stock";
+  target_id: number;
+  action: "create" | "update" | "delete";
+  status: "pending" | "adopted" | "rejected";
+  title: string;
+  summary: string | null;
+  confidence: number;
+  payload: string;
+  original_payload: string | null;
+  run_id: string | null;
+  source_agent: string | null;
+  created_at: string | null;
+  reviewed_at: string | null;
+}
+
+export interface ProposalListResponse {
+  items: ProposalItem[];
+  total: number;
+  page: number;
+  per_page: number;
 }

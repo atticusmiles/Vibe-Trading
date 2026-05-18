@@ -134,6 +134,24 @@ const messages = {
   recentlyUpdated: "最近更新", latestRuns: "最近运行",
   noItemsFound: "未找到项目", save: "保存", delete: "删除",
   undo: "撤销", saved: "已保存",
+  // Proposals
+  proposals: "提案", pendingApproval: "待审批",
+  adopt: "采纳", rejectBtn: "拒绝", cancelBtn: "取消",
+  proposalCreated: "提案已创建", proposalAdopted: "提案已采纳",
+  proposalRejected: "提案已拒绝", proposalCancelled: "提案已取消",
+  proposalDetail: "提案详情", changeSummary: "变更摘要",
+  proposedValue: "提议值", currentValue: "当前值",
+  newProposal: "新提案", updateProposal: "更新提案", deleteProposal: "删除提案",
+  actionLabel: "操作", sourceLabel: "来源",
+  noPendingProposals: "暂无待审批提案",
+  pendingCount: "条待审批提案",
+  expandProposals: "展开",
+  approve: "审批",
+  approveAll: "全部采纳", rejectAll: "全部拒绝",
+  selectAll: "全选", batchActions: "批量操作",
+  conflictError: "该目标已有同等或更高置信度的待审批提案",
+  proposalNotFound: "提案不存在",
+  proposalNotPending: "提案不在待审批状态",
 } as const;
 
 type Messages = typeof messages;

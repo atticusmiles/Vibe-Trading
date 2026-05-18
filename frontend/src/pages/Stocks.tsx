@@ -6,9 +6,11 @@ import { CompactList } from "@/components/fact-tables/CompactList";
 import { DetailPanel } from "@/components/fact-tables/DetailPanel";
 import { EmptyState } from "@/components/fact-tables/EmptyState";
 import { useDeleteWithUndo } from "@/components/fact-tables/DeleteWithUndo";
-import { api, type StockItem } from "@/lib/api";
+import { ProposalBanner } from "@/components/proposals/ProposalBanner";
+import { ProposalDetailModal } from "@/components/proposals/ProposalDetailModal";
+import { api, type StockItem, type ProposalItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { CandlestickChart, PlusCircle, Trash2, Pencil, ChevronDown } from "lucide-react";
+import { CandlestickChart, PlusCircle, Trash2, Pencil, ChevronDown, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -29,6 +31,12 @@ export function Stocks() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [mode, setMode] = useState<Mode>("view");
 
+  // Proposals state
+  const [pendingProposals, setPendingProposals] = useState<ProposalItem[]>([]);
+  const [detailProposal, setDetailProposal] = useState<ProposalItem | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  // Form state
   const [formName, setFormName] = useState("");
   const [formCode, setFormCode] = useState("");
   const [formIndustry, setFormIndustry] = useState("");
@@ -67,6 +75,15 @@ export function Stocks() {
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
+  const fetchProposals = useCallback(async () => {
+    try {
+      const result = await api.listProposals({ type: "stock", status: "pending", per_page: 100 });
+      setPendingProposals(result.items);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { fetchProposals(); }, [fetchProposals]);
+
   useEffect(() => {
     if (!filterOpen) return;
     const close = () => setFilterOpen(false);
@@ -81,6 +98,21 @@ export function Stocks() {
   }, [items, search]);
 
   const selected = useMemo(() => items.find((i) => i.id === selectedId) ?? null, [items, selectedId]);
+
+  const proposalMap = useMemo(() => {
+    const m = new Map<number, ProposalItem>();
+    pendingProposals.forEach((p) => m.set(p.target_id, p));
+    return m;
+  }, [pendingProposals]);
+
+  const handleAdoptProposal = async (id: number) => {
+    try { await api.adoptProposal(id); toast.success("提案已采纳"); } catch { toast.error("采纳失败"); }
+    fetchProposals(); fetchItems();
+  };
+  const handleRejectProposal = async (id: number) => {
+    try { await api.rejectProposal(id); toast.success("提案已拒绝"); } catch { toast.error("拒绝失败"); }
+    fetchProposals(); fetchItems();
+  };
 
   const startAdd = () => {
     setSelectedId(null);
@@ -157,6 +189,13 @@ export function Stocks() {
       <MasterDetailLayout
         master={
           <>
+            <ProposalBanner
+              target_type="stock"
+              proposals={pendingProposals}
+              onAdopt={handleAdoptProposal}
+              onReject={handleRejectProposal}
+              onViewDetail={(p) => { setDetailProposal(p); setDetailOpen(true); }}
+            />
             <div className="flex items-center gap-2 border-b p-3">
               <div className="flex-1">
                 <SearchInput value={search} onChange={setSearch} />
@@ -196,15 +235,19 @@ export function Stocks() {
               <CompactList
                 items={filtered} selectedId={selectedId} onSelect={(id) => selectItem(id)}
                 getId={(i) => i.id}
-                renderRow={(i) => (
-                  <div className="flex items-center gap-2 min-w-0">
+                renderRow={(i) => {
+                  const hasProposal = proposalMap.has(i.id) || i.status === "proposed";
+                  return (
+                  <div className={cn("flex items-center gap-2 min-w-0", hasProposal && "bg-warning/5 -mx-1 px-1 rounded")}>
+                    {hasProposal && <AlertTriangle className="h-3 w-3 shrink-0 text-warning" />}
                     <StatusDot status={i.status} />
                     <span className="min-w-0 flex-1 truncate font-medium">{i.name}</span>
                     <span className="shrink-0 text-xs text-muted-foreground">{i.code}</span>
                     {i.advice && <span className={cn("shrink-0 text-[10px] font-medium", ADVICE_COLORS[i.advice.toLowerCase()] || "text-muted-foreground")}>{ADVICE_LABELS[i.advice.toLowerCase()] || i.advice}</span>}
                     <ConfidenceDot value={i.confidence} />
                   </div>
-                )}
+                  );
+                }}
                 actions={(i) => (
                   <button onClick={(e) => { e.stopPropagation(); setSelectedId(i.id); handleDelete(); }} className="p-1 text-muted-foreground hover:text-destructive">
                     <Trash2 className="h-3.5 w-3.5" />
@@ -302,6 +345,15 @@ export function Stocks() {
             ) : null}
           </DetailPanel>
         }
+      />
+
+      <ProposalDetailModal
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        proposal={detailProposal}
+        factItem={selected ? (selected as unknown as Record<string, unknown>) : null}
+        onAdopt={handleAdoptProposal}
+        onReject={handleRejectProposal}
       />
     </div>
   );

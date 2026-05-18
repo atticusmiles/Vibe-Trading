@@ -51,11 +51,13 @@ export function Home() {
         <StatCard title="活跃趋势" active={active(s.trends)} proposed={s.trends.proposed || 0} to="/trends?status=active" />
         <StatCard title="活跃行业" active={active(s.industries)} proposed={s.industries.proposed || 0} to="/industries?status=active" />
         <StatCard title="活跃自选股" active={active(s.stocks)} proposed={s.stocks.proposed || 0} to="/stocks?status=active" />
-        <div className="rounded-lg border bg-card p-4 opacity-60">
-          <p className="text-xs font-medium text-muted-foreground">待处理提案</p>
-          <p className="mt-1 text-2xl font-bold">—</p>
-          <p className="text-xs text-muted-foreground">阶段 4</p>
-        </div>
+        <Link to="/proposals" className="rounded-lg border bg-card p-4 transition hover:border-primary/50 hover:shadow-sm">
+          <p className="text-xs font-medium text-muted-foreground">待审批提案</p>
+          <p className="mt-1 text-2xl font-bold">
+            {Object.values(data.pending_proposals || {}).reduce((a, b) => a + b, 0) || 0}
+          </p>
+          {(data.pending_proposals?.trend || 0) > 0 && <p className="text-xs text-warning">趋势 {data.pending_proposals!.trend}</p>}
+        </Link>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
