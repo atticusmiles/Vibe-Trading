@@ -188,7 +188,18 @@ async def _lifespan(application: FastAPI):
     run_preflight(console)
     init_db()
     _logger.info("Database initialized")
+
+    from src.datasources.news import NewsSyncService
+
+    _news_sync = NewsSyncService()
+    try:
+        await _news_sync.start()
+    except Exception:
+        _logger.exception("NewsSyncService failed to start, continuing without news sync")
+        _news_sync = None
     yield
+    if _news_sync is not None:
+        await _news_sync.stop()
 
 
 app = FastAPI(

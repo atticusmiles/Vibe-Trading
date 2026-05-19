@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
-from contextlib import asynccontextmanager
 from typing import Any, Callable, TypeVar
 
 logger = logging.getLogger(__name__)
@@ -66,28 +66,43 @@ async def fallback(
 # TTLCache (simple in-memory)
 # ---------------------------------------------------------------------------
 
+_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+
+
 class TTLCache:
-    """Keyed TTL cache backed by a plain dict. Not thread-safe."""
+    """Keyed TTL cache backed by a plain dict. Thread-safe."""
+
+    _MAX_ENTRIES = 10000
 
     def __init__(self, default_ttl: float = 30.0) -> None:
         self._store: dict[str, tuple[float, Any]] = {}
+        self._lock = threading.Lock()
         self.default_ttl = default_ttl
 
     def get(self, key: str) -> Any | None:
-        entry = self._store.get(key)
-        if entry is None:
-            return None
-        expires_at, value = entry
-        if time.monotonic() > expires_at:
-            del self._store[key]
-            return None
-        return value
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            expires_at, value = entry
+            if time.monotonic() > expires_at:
+                del self._store[key]
+                return None
+            return value
 
     def set(self, key: str, value: Any, ttl: float | None = None) -> None:
-        self._store[key] = (time.monotonic() + (ttl or self.default_ttl), value)
+        with self._lock:
+            if len(self._store) >= self._MAX_ENTRIES:
+                now = time.monotonic()
+                self._store = {k: v for k, v in self._store.items() if v[0] > now}
+                if len(self._store) >= self._MAX_ENTRIES:
+                    sorted_items = sorted(self._store.items(), key=lambda kv: kv[1][0])
+                    self._store = dict(sorted_items[self._MAX_ENTRIES // 2:])
+            self._store[key] = (time.monotonic() + (ttl or self.default_ttl), value)
 
     def clear(self) -> None:
-        self._store.clear()
+        with self._lock:
+            self._store.clear()
 
 
 # Module-level caches with different TTLs
@@ -102,7 +117,7 @@ cache_news = TTLCache(default_ttl=300.0)    # news: 5min
 # ---------------------------------------------------------------------------
 
 # Accepts: 600519 / sh600519 / SH600519 / 600519.SH / 600519.sh / SH.600519
-_CODE_RE = re.compile(r"^([shszSHSZ]{0,2})[.]?(\d{6})$")
+_CODE_RE = re.compile(r"^([shszbjSHSZBJ]{0,2})[.]?(\d{6})$")
 
 
 def normalize_code(code: str) -> str:
@@ -132,14 +147,14 @@ def to_mootdx_code(code: str) -> str:
 def to_baostock_code(code: str) -> str:
     """Convert to baostock format: ``sh.600519`` / ``sz.000001``."""
     c = normalize_code(code)
-    prefix = "sh" if c.startswith(("6", "9")) else ("bj" if c.startswith("8") else "sz")
+    prefix = "sh" if c.startswith(("6", "9")) else ("bj" if c.startswith(("4", "8")) else "sz")
     return f"{prefix}.{c}"
 
 
 def to_tencent_code(code: str) -> str:
     """Convert to Tencent Finance format: ``sh600519`` / ``sz000001``."""
     c = normalize_code(code)
-    prefix = "sh" if c.startswith(("6", "9")) else ("bj" if c.startswith("8") else "sz")
+    prefix = "sh" if c.startswith(("6", "9")) else ("bj" if c.startswith(("4", "8")) else "sz")
     return f"{prefix}{c}"
 
 
@@ -149,50 +164,49 @@ def mootdx_market(code: str) -> int:
     return 1 if c.startswith(("6", "9")) else 0
 
 
+def _safe_float(v: Any) -> float:
+    """Convert to float, returning 0.0 on failure."""
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 # ---------------------------------------------------------------------------
 # mootdx client helper
 # ---------------------------------------------------------------------------
 
-_client = None
+_client: Any = None
+_client_lock = threading.Lock()
 
 
 def get_mootdx_client():
     """Create a mootdx Quotes client (TCP).
 
-    Caches the client instance. On first call or when the cached
-    client becomes unhealthy, creates a new one (no bestip scan).
+    Returns a cached client, creating a new one on first call or when
+    the cached client is unhealthy. Thread-safe.
     """
-    global _client
     from mootdx.quotes import Quotes
 
-    if _client is not None:
-        try:
-            if _client.server and len(_client.server) == 2:
-                return _client
-        except Exception:
-            pass
-        _client = None
-
-    _client = Quotes.factory(market="std")
-    return _client
+    with _client_lock:
+        global _client
+        if _client is not None:
+            try:
+                # Verify the client is alive by checking its server attribute
+                if getattr(_client, "server", None):
+                    return _client
+            except Exception:
+                pass
+        _client = Quotes.factory(market="std")
+        return _client
 
 
 # ---------------------------------------------------------------------------
 # baostock session
 # ---------------------------------------------------------------------------
 
-@asynccontextmanager
-async def baostock_session():
-    """Async context manager wrapping baostock login/logout."""
-    import baostock as bs
-
-    rs = bs.login()
-    if rs.error_code != "0":
-        raise DataSourceError(f"baostock login failed: {rs.error_msg}")
-    try:
-        yield bs
-    finally:
-        bs.logout()
+baostock_lock = threading.RLock()
+"""Serialize all baostock login/query/logout sequences (global singleton session)."""
 
 
 # ---------------------------------------------------------------------------

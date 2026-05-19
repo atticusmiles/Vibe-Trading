@@ -7,6 +7,7 @@ Sources:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -15,11 +16,10 @@ from typing import Any
 
 import requests
 
-from .base import NoDataAvailableError, cache_news, normalize_code
+from .base import NoDataAvailableError, _UA, _safe_float, cache_news, normalize_code
 
 logger = logging.getLogger(__name__)
 
-UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 REPORT_API = "https://reportapi.eastmoney.com/report/list"
 
 
@@ -28,35 +28,34 @@ REPORT_API = "https://reportapi.eastmoney.com/report/list"
 # ---------------------------------------------------------------------------
 
 async def get_consensus_eps(code: str) -> dict[str, Any]:
-    """Consensus EPS forecast from THS.
-
-    Returns warning when org_count < 3 (insufficient coverage).
-    """
+    """Consensus EPS forecast from THS."""
     code = normalize_code(code)
     cache_key = f"eps:{code}"
     cached = cache_news.get(cache_key)
     if cached is not None:
         return cached
 
-    result = await _consensus_eps_ths(code)
+    result = await asyncio.to_thread(_ths_consensus_eps_sync, code)
     cache_news.set(cache_key, result, ttl=3600)
     return result
 
 
-async def _consensus_eps_ths(code: str) -> dict[str, Any]:
-    """Parse THS consensus EPS from embedded JSON data in worth.html.
-
-    THS renders data as JSON inside a hidden div:
-    <div id="yjycData" class="none">[["2024","68.64","862.28","SJ"],...]</div>
-    Each row: [year, EPS, net_profit_yi, type(SJ=actual/YC=forecast)]
-    """
+def _ths_consensus_eps_sync(code: str) -> dict[str, Any]:
+    """Parse THS consensus EPS from embedded JSON data in worth.html."""
     url = f"https://basic.10jqka.com.cn/new/{code}/worth.html"
     headers = {
-        "User-Agent": UA,
+        "User-Agent": _UA,
         "Referer": "https://basic.10jqka.com.cn/",
     }
-    r = requests.get(url, headers=headers, timeout=15)
-    r.encoding = "gbk"
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        r.raise_for_status()
+    except requests.RequestException as exc:
+        raise NoDataAvailableError(f"THS: request failed for {code}: {exc}") from exc
+    if "utf-8" in r.headers.get("Content-Type", "").lower():
+        r.encoding = "utf-8"
+    else:
+        r.encoding = r.apparent_encoding or "gbk"
 
     m = re.search(r'yjycData[^>]*>(.*?)</div>', r.text, re.DOTALL)
     if not m:
@@ -73,8 +72,8 @@ async def _consensus_eps_ths(code: str) -> dict[str, Any]:
     actual = [r for r in raw_data if len(r) >= 4 and r[3] == "SJ"]
     forecast = [r for r in raw_data if len(r) >= 4 and r[3] == "YC"]
 
-    actual_list = [{"year": r[0], "eps": float(r[1]), "net_profit": float(r[2])} for r in actual]
-    forecast_list = [{"year": r[0], "eps": float(r[1]), "net_profit": float(r[2])} for r in forecast]
+    actual_list = [{"year": row[0], "eps": _safe_float(row[1]), "net_profit": _safe_float(row[2])} for row in actual]
+    forecast_list = [{"year": row[0], "eps": _safe_float(row[1]), "net_profit": _safe_float(row[2])} for row in forecast]
 
     result: dict[str, Any] = {
         "code": code,
@@ -86,7 +85,6 @@ async def _consensus_eps_ths(code: str) -> dict[str, Any]:
         result["eps_mean"] = forecast_list[0]["eps"]
         result["forecast_year"] = forecast_list[0]["year"]
 
-    # Extract org count from the summary text on the page
     org_match = re.search(r'(\d+)\s*家.*?（|(\d+)\s*家.*?机构|共有\s*(\d+)\s*家', r.text)
     org_count = int(next(g for g in org_match.groups() if g)) if org_match and any(org_match.groups()) else 0
     result["org_count"] = org_count
@@ -109,52 +107,63 @@ async def get_research_reports(code: str, limit: int = 10) -> list[dict[str, Any
     if cached is not None:
         return cached
 
-    reports = await _reports_eastmoney(code, limit)
+    reports = await asyncio.to_thread(_eastmoney_reports_sync, code, limit)
     cache_news.set(cache_key, reports, ttl=1800)
     return reports
 
 
-async def _reports_eastmoney(code: str, limit: int) -> list[dict[str, Any]]:
+def _eastmoney_reports_sync(code: str, limit: int) -> list[dict[str, Any]]:
     """Fetch reports from eastmoney reportapi."""
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": UA,
-        "Referer": "https://data.eastmoney.com/",
-    })
+    max_pages = max(1, (limit + 99) // 100)
 
-    all_records: list[dict[str, Any]] = []
-    max_pages = max(1, (limit // 100) + 1)
+    with requests.Session() as session:
+        session.headers.update({
+            "User-Agent": _UA,
+            "Referer": "https://data.eastmoney.com/",
+        })
 
-    for page in range(1, max_pages + 1):
-        params = {
-            "industryCode": "*", "pageSize": "100", "industry": "*",
-            "rating": "*", "ratingChange": "*",
-            "beginTime": "2000-01-01", "endTime": "2030-01-01",
-            "pageNo": str(page), "fields": "", "qType": "0",
-            "orgCode": "", "code": code, "rcode": "",
-            "p": str(page), "pageNum": str(page), "pageNumber": str(page),
-        }
-        r = session.get(REPORT_API, params=params, timeout=30)
-        d = r.json()
-        rows = d.get("data") or []
-        if not rows:
-            break
+        all_records: list[dict[str, Any]] = []
 
-        for rec in rows:
-            all_records.append({
-                "title": rec.get("title", ""),
-                "org": rec.get("orgSName", ""),
-                "rating": rec.get("emRatingName", ""),
-                "target_price": rec.get("predictNextTwoYearPe", 0),
-                "date": (rec.get("publishDate") or "")[:10],
-                "eps_this_year": rec.get("predictThisYearEps"),
-                "eps_next_year": rec.get("predictNextYearEps"),
-                "info_code": rec.get("infoCode", ""),
-            })
+        for page in range(1, max_pages + 1):
+            params = {
+                "industryCode": "*", "pageSize": "100", "industry": "*",
+                "rating": "*", "ratingChange": "*",
+                "beginTime": "2000-01-01", "endTime": "2030-01-01",
+                "pageNo": str(page), "fields": "", "qType": "0",
+                "orgCode": "", "code": code, "rcode": "",
+                "p": str(page), "pageNum": str(page), "pageNumber": str(page),
+            }
+            try:
+                r = session.get(REPORT_API, params=params, timeout=30)
+                r.raise_for_status()
+            except requests.RequestException as exc:
+                raise NoDataAvailableError(f"Eastmoney API request failed: {exc}") from exc
+            d = r.json()
+            rows = d.get("data") or []
+            if not rows:
+                break
 
-        if page >= (d.get("TotalPage", 1) or 1):
-            break
-        time.sleep(0.3)
+            for rec in rows:
+                pub = rec.get("publishDate")
+                if isinstance(pub, str):
+                    date = pub[:10]
+                else:
+                    date = ""
+                all_records.append({
+                    "title": rec.get("title", ""),
+                    "org": rec.get("orgSName", ""),
+                    "rating": rec.get("emRatingName", ""),
+                    "predicted_pe": _safe_float(rec.get("predictNextTwoYearPe", 0)),
+                    "date": date,
+                    "eps_this_year": _safe_float(rec.get("predictThisYearEps")),
+                    "eps_next_year": _safe_float(rec.get("predictNextYearEps")),
+                    "info_code": rec.get("infoCode", ""),
+                })
+
+            if page >= (d.get("TotalPage", 1) or 1):
+                break
+
+            time.sleep(0.3)
 
     if not all_records:
         raise NoDataAvailableError(f"eastmoney: no research reports for {code}")

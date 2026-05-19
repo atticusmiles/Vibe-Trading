@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
 from src.core.config import get_data_dir
 
-_SCHEMA_VERSION = 6
+logger = logging.getLogger(__name__)
+
+_SCHEMA_VERSION = 8
 
 _CREATE_SCHEMA_META = """
 CREATE TABLE IF NOT EXISTS _schema_meta (
@@ -93,7 +96,7 @@ def _get_schema_version(conn: sqlite3.Connection) -> int:
     try:
         row = conn.execute("SELECT value FROM _schema_meta WHERE key='version'").fetchone()
         return int(row["value"]) if row else 0
-    except Exception:
+    except sqlite3.OperationalError:
         return 0
 
 
@@ -231,7 +234,7 @@ _MIGRATIONS: list[tuple[int, list[str]]] = [
             reviewed_at       TEXT
         )""",
         "INSERT INTO proposals SELECT * FROM _proposals_old",
-        "DROP TABLE _proposals_old",
+        "DROP TABLE IF EXISTS _proposals_old",
         "CREATE INDEX IF NOT EXISTS idx_proposals_user_status ON proposals(user_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_proposals_target ON proposals(user_id, target_type, target_id)",
         """CREATE UNIQUE INDEX IF NOT EXISTS idx_proposals_pending_target
@@ -239,6 +242,69 @@ _MIGRATIONS: list[tuple[int, list[str]]] = [
             WHERE status = 'pending'""",
     ]),
 ]
+
+_CREATE_DATASOURCE_TABLES = [
+    """CREATE TABLE IF NOT EXISTS news_raw (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id    TEXT NOT NULL,
+        title        TEXT NOT NULL,
+        content      TEXT,
+        level        TEXT,
+        source       TEXT NOT NULL DEFAULT 'cls',
+        published_at TEXT NOT NULL,
+        fetched_at   TEXT DEFAULT (datetime('now')),
+        UNIQUE(source_id, source)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_news_raw_published ON news_raw(published_at)",
+    """CREATE TABLE IF NOT EXISTS news_digests (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL REFERENCES users(id),
+        digest_date TEXT NOT NULL,
+        content     TEXT NOT NULL,
+        summary     TEXT,
+        created_at  TEXT DEFAULT (datetime('now')),
+        UNIQUE(user_id, digest_date)
+    )""",
+]
+
+_MIGRATIONS.append((7, _CREATE_DATASOURCE_TABLES))
+
+
+def _migration_8(conn: sqlite3.Connection) -> None:
+    """Rename flash_news_raw → news_raw, add source_id column.
+
+    Safe on both fresh and existing DBs:
+    - Fresh: migration 7 already created news_raw with source_id; this is a no-op.
+    - Existing: renames old table and adds the column.
+    """
+    # Check if old table exists
+    old_exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='flash_news_raw'"
+    ).fetchone()
+    if old_exists:
+        # Check if target already exists (migration 7 may have created it)
+        target_exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='news_raw'"
+        ).fetchone()
+        if target_exists:
+            # Both exist — drop the old one, keep the new
+            conn.execute('DROP TABLE "flash_news_raw"')
+        else:
+            conn.execute('ALTER TABLE "flash_news_raw" RENAME TO "news_raw"')
+
+    # Add source_id column if missing
+    try:
+        conn.execute('ALTER TABLE "news_raw" ADD COLUMN source_id TEXT NOT NULL DEFAULT ""')
+    except sqlite3.OperationalError as exc:
+        if "duplicate column" not in str(exc).lower():
+            raise
+
+    conn.execute("UPDATE \"news_raw\" SET source_id = CAST(id AS TEXT) WHERE source_id = ''")
+
+
+_MIGRATIONS.append((8, [
+    """SELECT 1""",  # placeholder — actual logic in _migration_8
+]))
 
 
 def init_db() -> None:
@@ -250,13 +316,18 @@ def init_db() -> None:
         current = _get_schema_version(conn)
         for target_version, statements in _MIGRATIONS:
             if current < target_version:
-                for stmt in statements:
-                    try:
-                        conn.execute(stmt)
-                    except sqlite3.OperationalError as exc:
-                        msg = str(exc).lower()
-                        if "already exists" in msg or "no such column" in msg:
-                            pass  # table/index already created
-                        else:
-                            raise
+                if target_version == 8:
+                    _migration_8(conn)
+                else:
+                    for stmt in statements:
+                        try:
+                            conn.execute(stmt)
+                        except sqlite3.OperationalError as exc:
+                            msg = str(exc).lower()
+                            if "already exists" in msg or "no such column" in msg or "no such table" in msg or "duplicate column" in msg:
+                                logger.debug("Migration %d: suppressed %s", target_version, msg)
+                            else:
+                                raise
                 _set_schema_version(conn, target_version)
+        final = _get_schema_version(conn)
+        assert final == _SCHEMA_VERSION, f"Schema version mismatch: {final} != {_SCHEMA_VERSION}"

@@ -24,7 +24,7 @@ SH_STAR = "688017"   # 绿的谐波 — 科创板
 
 # Helper to run async tests
 def run_async(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ===========================================================================
@@ -33,7 +33,7 @@ def run_async(coro):
 
 @pytest.mark.integration
 class TestKline:
-    def test_daily_kline_mootdx(self):
+    def test_daily_kline_baostock(self):
         from src.datasources.market import get_kline
 
         bars = run_async(get_kline(SH_MAIN, period="daily", count=10))
@@ -65,6 +65,13 @@ class TestKline:
         bars = run_async(get_kline(SH_MAIN, period="daily", start_date=start, end_date=end, count=60))
         assert len(bars) > 0
 
+    def test_kline_gem(self):
+        from src.datasources.market import get_kline
+
+        bars = run_async(get_kline(SZ_GEM, period="daily", count=5))
+        assert len(bars) > 0
+        assert bars[-1].close > 0
+
 
 @pytest.mark.integration
 class TestQuote:
@@ -87,7 +94,7 @@ class TestQuote:
 
 
 # ===========================================================================
-# valuation.py — get_valuation / get_valuation_history
+# valuation.py — get_valuation / get_valuation_history / get_valuation_percentile
 # ===========================================================================
 
 @pytest.mark.integration
@@ -97,18 +104,39 @@ class TestValuation:
 
         val = run_async(get_valuation(SH_MAIN))
         d = val.to_dict()
-        # PE/PB should be positive for 茅台
         assert d["pe_ttm"] > 0 or d["pb"] > 0
 
-    def test_valuation_history(self):
+    def test_valuation_history_default(self):
         from src.datasources.valuation import get_valuation_history
 
-        end = datetime.now().strftime("%Y-%m-%d")
-        start = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
-        points = run_async(get_valuation_history(SH_MAIN, start, end))
+        points = run_async(get_valuation_history(SH_MAIN))
         assert len(points) > 0
-        assert points[0].date >= start
-        assert points[-1].date <= end
+        assert points[-1].date
+
+    def test_valuation_history_months(self):
+        from src.datasources.valuation import get_valuation_history
+
+        points = run_async(get_valuation_history(SH_MAIN, months=6))
+        assert len(points) > 0
+
+    def test_valuation_percentile(self):
+        from src.datasources.valuation import get_valuation_percentile
+
+        r = run_async(get_valuation_percentile(SH_MAIN, months=60))
+        assert r["pe_ttm"] is not None or r["pb"] is not None
+        assert r["sample_count"] > 0
+        assert r["start_date"]
+        assert r["end_date"]
+        if r["pe_percentile"] is not None:
+            assert 0 <= r["pe_percentile"] <= 100
+        if r["pb_percentile"] is not None:
+            assert 0 <= r["pb_percentile"] <= 100
+
+    def test_valuation_percentile_short_period(self):
+        from src.datasources.valuation import get_valuation_percentile
+
+        r = run_async(get_valuation_percentile(SH_MAIN, months=12))
+        assert r["sample_count"] > 0
 
 
 # ===========================================================================
@@ -117,13 +145,20 @@ class TestValuation:
 
 @pytest.mark.integration
 class TestFundamental:
-    def test_financial_snapshot_mootdx(self):
+    def test_financial_snapshot_latest(self):
         from src.datasources.fundamental import get_financial_snapshot
 
         snap = run_async(get_financial_snapshot(SH_MAIN))
-        assert "eps" in snap or "raw" in snap
-        if snap.get("eps"):
-            assert snap["eps"] != 0
+        assert isinstance(snap, dict)
+        assert len(snap) > 0
+        assert "roe" in snap or "net_profit" in snap
+
+    def test_financial_snapshot_historical(self):
+        from src.datasources.fundamental import get_financial_snapshot
+
+        snap = run_async(get_financial_snapshot(SH_MAIN, year=2024, quarter=3))
+        assert isinstance(snap, dict)
+        assert len(snap) > 0
 
     def test_financial_snapshot_gem(self):
         from src.datasources.fundamental import get_financial_snapshot
@@ -158,29 +193,59 @@ class TestFundamental:
 
         info = run_async(get_industry(SH_MAIN))
         assert "industry" in info
-        assert info["industry"]  # should not be empty
+        assert info["industry"]
 
 
 # ===========================================================================
-# news.py — get_flash_news / get_stock_news
+# news.py — get_recent_news / search_stock_news / search_news / get_news_digest
 # ===========================================================================
 
 @pytest.mark.integration
 class TestNews:
-    def test_flash_news_cls(self):
-        from src.datasources.news import get_flash_news
+    def setup_method(self):
+        from src.db.database import init_db
+        init_db()
 
-        items = run_async(get_flash_news(limit=10))
-        assert len(items) > 0
-        assert items[0].title or items[0].content
-        assert items[0].time
+    def test_recent_news(self):
+        from src.datasources.news import get_recent_news
+
+        items = run_async(get_recent_news(limit=10))
+        assert isinstance(items, list)
+
+    def test_recent_news_title_filter(self):
+        from src.datasources.news import get_recent_news
+
+        items = run_async(get_recent_news(title="茅台", limit=5))
+        assert isinstance(items, list)
+
+    def test_recent_news_fields(self):
+        from src.datasources.news import get_recent_news
+
+        items = run_async(get_recent_news(fields="title", limit=5))
+        assert isinstance(items, list)
+        if items:
+            assert "title" in items[0]
+            assert "content" not in items[0]
 
     def test_stock_news(self):
-        from src.datasources.news import get_stock_news
+        from src.datasources.news import search_stock_news
 
-        items = run_async(get_stock_news(SH_MAIN, limit=5))
+        items = run_async(search_stock_news(SH_MAIN, limit=5))
         assert len(items) > 0
         assert items[0].title
+
+    def test_search_news(self):
+        from src.datasources.news import search_news
+
+        items = run_async(search_news("人工智能", limit=5))
+        assert len(items) > 0
+        assert items[0].title
+
+    def test_search_news_invalid_category(self):
+        from src.datasources.news import search_news
+
+        with pytest.raises(ValueError, match="Invalid category"):
+            run_async(search_news("test", category="invalid"))
 
 
 # ===========================================================================
@@ -206,48 +271,41 @@ class TestResearch:
 
 
 # ===========================================================================
-# base.py — normalize_code / fallback / baostock_session
+# base.py — normalize_code / fallback / baostock_session / TTLCache
 # ===========================================================================
 
-class TestNormalizeCode:  # unit test, no network needed
+class TestNormalizeCode:
     def test_plain_code(self):
         from src.datasources.base import normalize_code
-
         assert normalize_code("600519") == "600519"
 
     def test_sh_prefix(self):
         from src.datasources.base import normalize_code
-
         assert normalize_code("sh600519") == "600519"
 
     def test_dot_suffix(self):
         from src.datasources.base import normalize_code
-
         assert normalize_code("600519.SH") == "600519"
 
     def test_upper_prefix(self):
         from src.datasources.base import normalize_code
-
         assert normalize_code("SZ000001") == "000001"
 
     def test_invalid_raises(self):
         from src.datasources.base import normalize_code
-
         with pytest.raises(ValueError):
             normalize_code("INVALID")
 
 
-class TestTTLCache:  # unit test
+class TestTTLCache:
     def test_set_and_get(self):
         from src.datasources.base import TTLCache
-
         c = TTLCache(default_ttl=60)
         c.set("k", "v")
         assert c.get("k") == "v"
 
     def test_expired(self):
         from src.datasources.base import TTLCache
-
         c = TTLCache(default_ttl=0.01)
         c.set("k", "v")
         import time
@@ -256,7 +314,6 @@ class TestTTLCache:  # unit test
 
     def test_clear(self):
         from src.datasources.base import TTLCache
-
         c = TTLCache()
         c.set("k", "v")
         c.clear()
@@ -264,25 +321,17 @@ class TestTTLCache:  # unit test
 
 
 @pytest.mark.integration
-class TestBaostockSession:
-    def test_login_logout(self):
-        from src.datasources.base import baostock_session
-
-        async def _test():
-            async with baostock_session() as bs:
-                rs = bs.query_history_k_data_plus(
-                    "sh.600519", "date,close",
-                    start_date="2025-01-01",
-                    end_date="2025-01-10",
-                    frequency="d", adjustflag="3",
-                )
-                rows = []
-                while rs.error_code == "0" and rs.next():
-                    rows.append(rs.get_row_data())
-                return rows
-
-        rows = run_async(_test())
-        assert len(rows) > 0
+class TestBaostockLock:
+    def test_lock_is_rlock(self):
+        from src.datasources.base import baostock_lock
+        import threading
+        # Verify it's an RLock by checking repr or acquire/release nesting
+        baostock_lock.acquire()
+        try:
+            baostock_lock.acquire()  # RLock allows re-entrant acquire
+            baostock_lock.release()
+        finally:
+            baostock_lock.release()
 
 
 @pytest.mark.integration
@@ -322,6 +371,7 @@ class TestFallback:
 
 async def _async_ret(val):
     return val
+
 
 async def _async_raise(msg):
     raise RuntimeError(msg)

@@ -1,18 +1,19 @@
 """Market data: K-line bars and real-time quotes.
 
-Primary source: mootdx (TCP).
-Fallback for daily K-line: baostock.
+K-line: baostock (primary) → mootdx (fallback).
+Real-time quotes: mootdx only.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .base import (
     NoDataAvailableError,
-    baostock_session,
+    baostock_lock,
     cache_kline,
     cache_quote,
     fallback,
@@ -93,29 +94,30 @@ async def get_kline(
     end_date: str | None = None,
     count: int = 120,
 ) -> list[Bar]:
-    """Fetch K-line bars.  Primary: mootdx, fallback (daily only): baostock."""
+    """Fetch K-line bars.  Primary: baostock (daily), fallback: mootdx."""
     code = normalize_code(code)
     cache_key = f"kline:{code}:{period}:{count}:{start_date}:{end_date}"
     cached = cache_kline.get(cache_key)
     if cached is not None:
         return cached
 
-    async def _primary() -> list[Bar]:
-        return await _kline_mootdx(code, period, count)
-
-    fb = None
     if period == "daily":
-        async def _fb() -> list[Bar]:
-            return await _kline_baostock(code, start_date, end_date, count)
-        fb = _fb
+        async def _primary() -> list[Bar]:
+            return await asyncio.to_thread(_baostock_kline_sync, code, start_date, end_date, count)
 
-    bars = await fallback(_primary, fb, label=f"get_kline({code},{period})")
+        async def _fb() -> list[Bar]:
+            return await asyncio.to_thread(_mootdx_kline_sync, code, period, count)
+
+        bars = await fallback(_primary, _fb, label=f"get_kline({code},{period})")
+    else:
+        bars = await asyncio.to_thread(_mootdx_kline_sync, code, period, count)
+
     cache_kline.set(cache_key, bars)
     return bars
 
 
-async def _kline_mootdx(code: str, period: str, count: int) -> list[Bar]:
-    """Fetch K-line via mootdx TCP."""
+def _mootdx_kline_sync(code: str, period: str, count: int) -> list[Bar]:
+    """Fetch K-line via mootdx TCP (sync, runs in thread)."""
     category = PERIOD_MAP.get(period)
     if category is None:
         raise ValueError(f"mootdx does not support period {period!r}")
@@ -128,14 +130,16 @@ async def _kline_mootdx(code: str, period: str, count: int) -> list[Bar]:
     if df is None or df.empty:
         raise NoDataAvailableError(f"mootdx returned empty kline for {code}")
 
-    # mootdx pitfall: datetime in both index and column
+    # mootdx returns datetime in both index and column — drop column, then reset
     if "datetime" in df.columns:
         df = df.drop(columns=["datetime"])
     df = df.reset_index()
+    if "datetime" in df.columns:
+        df = df.rename(columns={"datetime": "date"})
 
     bars: list[Bar] = []
     for _, row in df.iterrows():
-        dt_val = row.get("datetime") or row.get("date", "")
+        dt_val = row.get("date", "")
         if isinstance(dt_val, datetime):
             dt_str = dt_val.strftime("%Y-%m-%d")
         else:
@@ -152,35 +156,44 @@ async def _kline_mootdx(code: str, period: str, count: int) -> list[Bar]:
     return bars
 
 
-async def _kline_baostock(
+def _baostock_kline_sync(
     code: str,
     start_date: str | None,
     end_date: str | None,
     count: int,
 ) -> list[Bar]:
-    """Fetch daily K-line via baostock (fallback)."""
-    bs_code = to_baostock_code(code)
-    today = datetime.now().strftime("%Y-%m-%d")
-    sd = start_date or "1990-01-01"
-    ed = end_date or today
+    """Fetch daily K-line via baostock (sync, runs in thread)."""
+    import baostock as bs
 
-    async with baostock_session() as bs:
-        rs = bs.query_history_k_data_plus(
-            bs_code,
-            "date,open,high,low,close,volume,amount,turn",
-            start_date=sd,
-            end_date=ed,
-            frequency="d",
-            adjustflag="3",  # no adjustment
-        )
-        rows = []
-        while rs.error_code == "0" and rs.next():
-            rows.append(rs.get_row_data())
+    bs_code = to_baostock_code(code)
+    today = datetime.now()
+    ed = end_date or today.strftime("%Y-%m-%d")
+    sd = start_date or (today - timedelta(days=count * 2)).strftime("%Y-%m-%d")
+
+    with baostock_lock:
+        lg = bs.login()
+        if lg.error_code != "0":
+            raise NoDataAvailableError(f"baostock login failed: {lg.error_msg}")
+        try:
+            rs = bs.query_history_k_data_plus(
+                bs_code,
+                "date,open,high,low,close,volume,amount,turn",
+                start_date=sd,
+                end_date=ed,
+                frequency="d",
+                adjustflag="3",
+            )
+            rows = []
+            while rs.error_code == "0" and rs.next():
+                rows.append(rs.get_row_data())
+            if not rows and rs.error_code != "0":
+                logger.warning("baostock query failed for %s: %s %s", code, rs.error_code, rs.error_msg)
+        finally:
+            bs.logout()
 
     if not rows:
         raise NoDataAvailableError(f"baostock returned empty kline for {code}")
 
-    # Take last `count` rows
     rows = rows[-count:]
     bars: list[Bar] = []
     for r in rows:
@@ -208,7 +221,7 @@ async def get_quote(code: str) -> Quote:
     if cached is not None:
         return cached
 
-    result = await _quotes_mootdx([code])
+    result = await _mootdx_quotes([code])
     if code not in result:
         raise NoDataAvailableError(f"No quote data for {code}")
     q = result[code]
@@ -219,7 +232,6 @@ async def get_quote(code: str) -> Quote:
 async def get_quotes(codes: list[str]) -> dict[str, Quote]:
     """Batch real-time quotes (mootdx only)."""
     normalized = [normalize_code(c) for c in codes]
-    # Check cache first, collect uncached
     cached: dict[str, Quote] = {}
     uncached: list[str] = []
     for c in normalized:
@@ -230,7 +242,7 @@ async def get_quotes(codes: list[str]) -> dict[str, Quote]:
             uncached.append(c)
 
     if uncached:
-        fresh = await _quotes_mootdx(uncached)
+        fresh = await _mootdx_quotes(uncached)
         for c, q in fresh.items():
             cache_quote.set(f"quote:{c}", q)
         cached.update(fresh)
@@ -238,19 +250,22 @@ async def get_quotes(codes: list[str]) -> dict[str, Quote]:
     return cached
 
 
-async def _quotes_mootdx(codes: list[str]) -> dict[str, Quote]:
-    """Fetch real-time quotes from mootdx."""
+async def _mootdx_quotes(codes: list[str]) -> dict[str, Quote]:
+    return await asyncio.to_thread(_mootdx_quotes_sync, codes)
+
+
+def _mootdx_quotes_sync(codes: list[str]) -> dict[str, Quote]:
+    """Fetch real-time quotes from mootdx (sync, runs in thread)."""
     client = get_mootdx_client()
     symbols = [to_mootdx_code(c) for c in codes]
     market_map = {to_mootdx_code(c): c for c in codes}
 
     df = client.quotes(symbol=symbols)
     if df is None or df.empty:
-        raise NoDataAvailableError(f"mootdx returned empty quotes for {codes}")
+        return {}
 
     result: dict[str, Quote] = {}
     for _, row in df.iterrows():
-        # mootdx returns "code" column (plain 6-digit), not "symbol"
         stock_code = str(row.get("code", "") or row.get("symbol", ""))
         orig_code = market_map.get(stock_code, stock_code)
         pre_close = float(row.get("last_close", 0) or 0)

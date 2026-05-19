@@ -1,4 +1,4 @@
-"""Valuation data: current snapshot and historical series.
+"""Valuation data: current snapshot, historical series, and percentile ranking.
 
 Primary source: baostock.
 Fallback: Tencent Finance HTTP API.
@@ -6,19 +6,22 @@ Fallback: Tencent Finance HTTP API.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .base import (
     NoDataAvailableError,
-    baostock_session,
+    _UA,
+    _safe_float,
+    baostock_lock,
     cache_valuation,
     fallback,
     normalize_code,
     to_baostock_code,
-    to_tencent_code,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,91 +76,88 @@ async def get_valuation(code: str) -> Valuation:
         return cached
 
     async def _primary() -> Valuation:
-        return await _valuation_baostock(code)
+        return await asyncio.to_thread(_baostock_valuation_sync, code)
 
     async def _fb() -> Valuation:
-        return await _valuation_tencent(code)
+        return await asyncio.to_thread(_tencent_valuation_sync, code)
 
     val = await fallback(_primary, _fb, label=f"get_valuation({code})")
     cache_valuation.set(cache_key, val)
     return val
 
 
-async def _valuation_baostock(code: str) -> Valuation:
-    """Fetch latest valuation from baostock."""
+def _baostock_valuation_sync(code: str) -> Valuation:
+    """Fetch latest valuation from baostock (runs in thread)."""
+    import baostock as bs
+
     bs_code = to_baostock_code(code)
     today = datetime.now().strftime("%Y-%m-%d")
 
-    async with baostock_session() as bs:
-        rs = bs.query_history_k_data_plus(
-            bs_code,
-            "date,peTTM,pbMRQ,psTTM,turn,tradestatus",
-            start_date=today,
-            end_date=today,
-            frequency="d",
-            adjustflag="3",
-        )
-        rows = []
-        while rs.error_code == "0" and rs.next():
-            rows.append(rs.get_row_data())
-
-    # If today has no data (e.g. non-trading day), try recent days
-    if not rows:
-        async with baostock_session() as bs:
-            rs = bs.query_history_k_data_plus(
-                bs_code,
-                "date,peTTM,pbMRQ,psTTM",
-                start_date="2020-01-01",
-                end_date=today,
-                frequency="d",
-                adjustflag="3",
-            )
-            all_rows = []
-            while rs.error_code == "0" and rs.next():
-                all_rows.append(rs.get_row_data())
-            if all_rows:
-                rows = [all_rows[-1]]
+    with baostock_lock:
+        lg = bs.login()
+        if lg.error_code != "0":
+            raise NoDataAvailableError(f"baostock login failed: {lg.error_msg}")
+        try:
+            rows = _bs_query_k_data(bs, bs_code, "date,peTTM,pbMRQ,psTTM,turn,tradestatus", today, today)
+            if not rows:
+                # Try the last 30 days instead of querying all the way back to 2020
+                fallback_start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+                rows = _bs_query_k_data(bs, bs_code, "date,peTTM,pbMRQ,psTTM", fallback_start, today)
+                if rows:
+                    rows = [rows[-1]]
+        finally:
+            bs.logout()
 
     if not rows:
         raise NoDataAvailableError(f"baostock: no valuation for {code}")
 
     r = rows[0]
     return Valuation(
-        pe_ttm=float(r[1]) if r[1] else 0,
-        pb=float(r[2]) if r[2] else 0,
-        ps_ttm=float(r[3]) if r[3] else 0,
+        pe_ttm=_safe_float(r[1]),
+        pb=_safe_float(r[2]),
+        ps_ttm=_safe_float(r[3]),
     )
 
 
-async def _valuation_tencent(code: str) -> Valuation:
-    """Fetch valuation from Tencent Finance HTTP API.
+def _tencent_valuation_sync(code: str) -> Valuation:
+    """Fetch valuation from Tencent Finance HTTP API (runs in thread)."""
+    from .base import to_tencent_code
 
-    Returns ~ separated 88 fields, GBK encoded.
-    Key fields: 39=PE(TTM), 46=PB, 44=总市值(亿), 45=流通市值(亿),
-                47=涨停价, 48=跌停价, 52=PE(静态).
-    """
     tcode = to_tencent_code(code)
     url = f"https://qt.gtimg.cn/q={tcode}"
     req = urllib.request.Request(url)
-    req.add_header("User-Agent", "Mozilla/5.0")
-    resp = urllib.request.urlopen(req, timeout=10)
-    data = resp.read().decode("gbk")
+    req.add_header("User-Agent", _UA)
+
+    try:
+        resp = urllib.request.urlopen(req, timeout=10)
+    except (urllib.error.URLError, OSError) as exc:
+        raise NoDataAvailableError(f"Tencent Finance HTTP error for {code}: {exc}") from exc
+
+    raw = resp.read()
+    try:
+        data = raw.decode("gbk")
+    except UnicodeDecodeError:
+        data = raw.decode("utf-8", errors="replace")
 
     for line in data.strip().split(";"):
         if not line.strip() or "=" not in line or '"' not in line:
+            continue
+        # Verify the response line matches the requested ticker
+        prefix = line.split("=", 1)[0].strip().lower()
+        if tcode.lower() not in prefix:
             continue
         vals = line.split('"')[1].split("~")
         if len(vals) < 53:
             continue
         return Valuation(
-            pe_ttm=float(vals[39]) if vals[39] else 0,
-            pe_static=float(vals[52]) if vals[52] else 0,
-            pb=float(vals[46]) if vals[46] else 0,
-            total_mv=float(vals[44]) if vals[44] else 0,
-            circ_mv=float(vals[45]) if vals[45] else 0,
-            turnover=float(vals[38]) if vals[38] else 0,
-            limit_up=float(vals[47]) if vals[47] else 0,
-            limit_down=float(vals[48]) if vals[48] else 0,
+            pe_ttm=_safe_float(vals[39]),
+            pe_static=_safe_float(vals[52]),
+            pb=_safe_float(vals[46]),
+            total_mv=_safe_float(vals[44]),
+            circ_mv=_safe_float(vals[45]),
+            turnover=_safe_float(vals[38]),
+            limit_up=_safe_float(vals[47]),
+            limit_down=_safe_float(vals[48]),
         )
 
     raise NoDataAvailableError(f"Tencent Finance: no valuation for {code}")
@@ -169,25 +169,21 @@ async def _valuation_tencent(code: str) -> Valuation:
 
 async def get_valuation_history(
     code: str,
-    start_date: str,
-    end_date: str,
+    months: int = 1,
 ) -> list[ValuationPoint]:
     """Historical PE/PB/PS series from baostock."""
     code = normalize_code(code)
-    bs_code = to_baostock_code(code)
+    cache_key = f"val_hist:{code}:{months}"
+    cached = cache_valuation.get(cache_key)
+    if cached is not None:
+        return cached
 
-    async with baostock_session() as bs:
-        rs = bs.query_history_k_data_plus(
-            bs_code,
-            "date,peTTM,pbMRQ,psTTM",
-            start_date=start_date,
-            end_date=end_date,
-            frequency="d",
-            adjustflag="3",
-        )
-        rows = []
-        while rs.error_code == "0" and rs.next():
-            rows.append(rs.get_row_data())
+    bs_code = to_baostock_code(code)
+    today = datetime.now()
+    end_date = today.strftime("%Y-%m-%d")
+    start_date = (today - timedelta(days=months * 31)).strftime("%Y-%m-%d")
+
+    rows = await asyncio.to_thread(_bs_query_k_data_sync, bs_code, start_date, end_date)
 
     if not rows:
         raise NoDataAvailableError(
@@ -198,8 +194,114 @@ async def get_valuation_history(
     for r in rows:
         points.append(ValuationPoint(
             date=str(r[0]),
-            pe_ttm=float(r[1]) if r[1] else 0,
-            pb=float(r[2]) if r[2] else 0,
-            ps_ttm=float(r[3]) if r[3] else 0,
+            pe_ttm=_safe_float(r[1]),
+            pb=_safe_float(r[2]),
+            ps_ttm=_safe_float(r[3]),
         ))
+    cache_valuation.set(cache_key, points)
     return points
+
+
+# ---------------------------------------------------------------------------
+# Valuation percentile
+# ---------------------------------------------------------------------------
+
+async def get_valuation_percentile(
+    code: str,
+    months: int = 60,
+) -> dict[str, Any]:
+    """Current valuation percentile rank over historical data.
+
+    Fetches `months` months of daily PE/PB/PS from baostock, then calculates
+    what percentile the latest value falls at (e.g. pe_percentile=80 means
+    80% of historical days had PE lower than today).
+    """
+    code = normalize_code(code)
+    cache_key = f"val_pct:{code}:{months}"
+    cached = cache_valuation.get(cache_key)
+    if cached is not None:
+        return cached
+
+    bs_code = to_baostock_code(code)
+    today = datetime.now()
+    end = today.strftime("%Y-%m-%d")
+    start = (today - timedelta(days=months * 31)).strftime("%Y-%m-%d")
+
+    rows = await asyncio.to_thread(_bs_query_k_data_sync, bs_code, start, end)
+
+    if not rows:
+        raise NoDataAvailableError(
+            f"baostock: no valuation data for {code} percentile calc"
+        )
+
+    pe_vals, pb_vals, ps_vals = [], [], []
+    for r in rows:
+        for vals, idx in ((pe_vals, 1), (pb_vals, 2), (ps_vals, 3)):
+            try:
+                v = float(r[idx])
+                if v != 0:
+                    vals.append(v)
+            except (ValueError, TypeError, IndexError):
+                pass
+
+    if not pe_vals and not pb_vals and not ps_vals:
+        raise NoDataAvailableError(f"baostock: all valuation values empty for {code}")
+
+    latest_pe = next((v for v in reversed(pe_vals) if v != 0), None)
+    latest_pb = next((v for v in reversed(pb_vals) if v != 0), None)
+    latest_ps = next((v for v in reversed(ps_vals) if v != 0), None)
+
+    def _pct(arr: list[float], current: float | None) -> float | None:
+        if current is None or not arr:
+            return None
+        valid = [x for x in arr if x != 0]
+        if not valid:
+            return None
+        return round(sum(1 for x in valid if x < current) / len(valid) * 100, 1)
+
+    result = {
+        "pe_ttm": latest_pe,
+        "pb": latest_pb,
+        "ps_ttm": latest_ps,
+        "pe_percentile": _pct(pe_vals, latest_pe),
+        "pb_percentile": _pct(pb_vals, latest_pb),
+        "ps_percentile": _pct(ps_vals, latest_ps),
+        "sample_count": len(rows),
+        "start_date": rows[0][0],
+        "end_date": rows[-1][0],
+    }
+    cache_valuation.set(cache_key, result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Shared baostock query helpers (sync, run in thread)
+# ---------------------------------------------------------------------------
+
+def _bs_query_k_data(bs, code: str, fields: str, start: str, end: str) -> list:
+    """Run a baostock k-data query and return all rows."""
+    rs = bs.query_history_k_data_plus(
+        code, fields,
+        start_date=start, end_date=end,
+        frequency="d", adjustflag="3",
+    )
+    rows = []
+    while rs.error_code == "0" and rs.next():
+        rows.append(rs.get_row_data())
+    if not rows and rs.error_code != "0":
+        logger.warning("baostock query error %s: %s", rs.error_code, rs.error_msg)
+    return rows
+
+
+def _bs_query_k_data_sync(bs_code: str, start: str, end: str) -> list:
+    """Login, query k-data, logout — runs in thread."""
+    import baostock as bs
+
+    with baostock_lock:
+        lg = bs.login()
+        if lg.error_code != "0":
+            raise NoDataAvailableError(f"baostock login failed: {lg.error_msg}")
+        try:
+            return _bs_query_k_data(bs, bs_code, "date,peTTM,pbMRQ,psTTM", start, end)
+        finally:
+            bs.logout()
