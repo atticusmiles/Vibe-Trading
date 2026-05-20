@@ -117,13 +117,26 @@ async def generate_daily_digest(target_date: str | None = None) -> dict[str, Any
 
 
 async def _scheduled_digest_job() -> None:
-    """Scheduled job: generate yesterday's digest at the configured time."""
+    """Scheduled job: generate yesterday's digest via swarm preset.
+
+    Falls back to direct LLM call if swarm fails.
+    """
+    yesterday = (datetime.now(SHANGHAI_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
+    try:
+        run_id = _run_preset("digest_news", {"digest_date": yesterday})
+        if run_id:
+            logger.info("Started digest_news preset for %s (run %s)", yesterday, run_id)
+            return
+    except Exception:
+        logger.warning("Swarm digest failed, falling back to direct LLM", exc_info=True)
+
+    # Fallback: direct LLM call
     try:
         result = await generate_daily_digest()
         if result:
-            logger.info("Scheduled digest generated: %s", result["digest_date"])
+            logger.info("Fallback digest generated: %s", result["digest_date"])
     except Exception:
-        logger.exception("Scheduled digest job failed")
+        logger.exception("Digest generation failed completely")
 
 
 def _run_preset(preset_name: str, user_vars: dict[str, str]) -> str | None:
@@ -386,11 +399,11 @@ def setup_scheduler(app_state: dict[str, Any] | None = None) -> Any:
 
     sched = create_scheduler()
 
-    # Daily digest at 8:00 AM Shanghai time
+    # Daily digest at 1:00 AM Shanghai time
     sched.add_job(
         _scheduled_digest_job,
         "cron",
-        hour=8,
+        hour=1,
         minute=0,
         id="daily_digest",
         replace_existing=True,
