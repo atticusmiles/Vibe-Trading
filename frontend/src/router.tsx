@@ -25,6 +25,7 @@ const Trends = lazy(() => import("@/pages/Trends").then((m) => ({ default: m.Tre
 const Industries = lazy(() => import("@/pages/Industries").then((m) => ({ default: m.Industries })));
 const Stocks = lazy(() => import("@/pages/Stocks").then((m) => ({ default: m.Stocks })));
 const Proposals = lazy(() => import("@/pages/Proposals").then((m) => ({ default: m.Proposals })));
+const News = lazy(() => import("@/pages/News").then((m) => ({ default: m.News })));
 
 function PageLoader() {
   return (
@@ -62,6 +63,7 @@ export const router = createBrowserRouter([
       { path: "/industries", element: <RequireAuth>{wrap(Industries)}</RequireAuth> },
       { path: "/stocks", element: <RequireAuth>{wrap(Stocks)}</RequireAuth> },
       { path: "/proposals", element: <RequireAuth>{wrap(Proposals)}</RequireAuth> },
+      { path: "/news", element: <RequireAuth>{wrap(News)}</RequireAuth> },
       { path: "/agent", element: <RequireAuth>{wrap(Agent)}</RequireAuth> },
       { path: "/settings", element: <RequireAuth>{wrap(Settings)}</RequireAuth> },
       { path: "/tools", element: <RequireAuth>{wrap(Tools)}</RequireAuth> },

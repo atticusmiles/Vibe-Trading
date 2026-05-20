@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { BarChart3, Bot, LogOut, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Wrench, TrendingUp, Factory, CandlestickChart, FileCheck } from "lucide-react";
+import { BarChart3, Bot, LogOut, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Wrench, TrendingUp, Factory, CandlestickChart, FileCheck, Newspaper } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
@@ -16,6 +16,7 @@ const NAV = [
   { to: "/industries", icon: Factory, key: "industries" as const },
   { to: "/stocks", icon: CandlestickChart, key: "stocks" as const },
   { to: "/proposals", icon: FileCheck, key: "proposals" as const },
+  { to: "/news", icon: Newspaper, key: "news" as const },
   { to: "/agent", icon: Bot, key: "agent" as const },
   { to: "/tools", icon: Wrench, key: "tools" as const },
   { to: "/settings", icon: Settings, key: "settings" as const },

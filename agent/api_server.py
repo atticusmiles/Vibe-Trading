@@ -197,7 +197,21 @@ async def _lifespan(application: FastAPI):
     except Exception:
         _logger.exception("NewsSyncService failed to start, continuing without news sync")
         _news_sync = None
+
+    _scheduler = None
+    try:
+        from src.scheduler import setup_scheduler
+        _scheduler = setup_scheduler()
+        _scheduler.start()
+        _logger.info("APScheduler started")
+    except Exception:
+        _logger.exception("APScheduler failed to start, continuing without scheduled jobs")
+
     yield
+
+    if _scheduler is not None:
+        _scheduler.shutdown(wait=False)
+        _logger.info("APScheduler stopped")
     if _news_sync is not None:
         await _news_sync.stop()
 
@@ -1371,6 +1385,117 @@ async def cancel_swarm_run(run_id: str):
     if not ok:
         raise HTTPException(status_code=404, detail=f"No active run {run_id}")
     return {"status": "cancelled"}
+
+
+# ============================================================================
+# News / Datasources API
+# ============================================================================
+
+
+@app.get("/api/news/digests")
+async def list_news_digests(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    user_id: int = Depends(require_user),
+):
+    """List daily news digests."""
+    from src.datasources.news import get_news_digest
+
+    return await get_news_digest(start_date=start_date, end_date=end_date)
+
+
+@app.get("/api/news/digests/latest")
+async def get_latest_digest(user_id: int = Depends(require_user)):
+    """Get the most recent news digest."""
+    from src.datasources.news import get_news_digest
+
+    digests = await get_news_digest()
+    if not digests:
+        raise HTTPException(status_code=404, detail="No digest found")
+    return digests[0]
+
+
+@app.get("/api/news/digests/{digest_id}")
+async def get_digest_detail(digest_id: int, user_id: int = Depends(require_user)):
+    """Get a single digest by ID."""
+    from src.db import get_db
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, user_id, digest_date, content, summary, created_at "
+            "FROM news_digests WHERE id = ?",
+            (digest_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Digest not found")
+    return dict(row)
+
+
+@app.post("/api/news/digests/trigger")
+async def trigger_digest(
+    target_date: str | None = None,
+    user_id: int = Depends(require_user),
+):
+    """Manually trigger digest generation for a given date (default: yesterday)."""
+    from src.scheduler import generate_daily_digest
+
+    result = await generate_daily_digest(target_date)
+    if not result:
+        raise HTTPException(status_code=404, detail="No news found for that date")
+    return result
+
+
+@app.get("/api/news/recent")
+async def list_recent_news(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    title: str | None = None,
+    limit: int = 100,
+    user_id: int = Depends(require_user),
+):
+    """Query recent news from news_raw table."""
+    from src.datasources.news import get_recent_news
+
+    return await get_recent_news(
+        start_date=start_date, end_date=end_date,
+        title=title, limit=min(limit, 500),
+    )
+
+
+@app.get("/api/datasources/status")
+async def datasources_status(user_id: int = Depends(require_user)):
+    """Check availability of all data sources."""
+    sources = {}
+
+    for name, check_fn in [
+        ("baostock", lambda: _check_import("baostock")),
+        ("mootdx", lambda: _check_import("mootdx.quotes")),
+        ("akshare", lambda: _check_import("akshare")),
+    ]:
+        try:
+            sources[name] = {"available": check_fn()}
+        except Exception as exc:
+            sources[name] = {"available": False, "error": str(exc)}
+
+    # Check DB tables
+    try:
+        from src.db import get_db
+        with get_db() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM news_raw").fetchone()[0]
+        sources["news_db"] = {"available": True, "records": count}
+    except Exception as exc:
+        sources["news_db"] = {"available": False, "error": str(exc)}
+
+    return {"sources": sources, "timestamp": datetime.now().isoformat()}
+
+
+def _check_import(module: str) -> bool:
+    import importlib
+    try:
+        importlib.import_module(module)
+        return True
+    except ImportError:
+        return False
 
 
 # ============================================================================

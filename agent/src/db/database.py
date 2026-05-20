@@ -11,7 +11,7 @@ from src.core.config import get_data_dir
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = 8
+_SCHEMA_VERSION = 9
 
 _CREATE_SCHEMA_META = """
 CREATE TABLE IF NOT EXISTS _schema_meta (
@@ -307,6 +307,43 @@ _MIGRATIONS.append((8, [
 ]))
 
 
+def _migration_9(conn: sqlite3.Connection) -> None:
+    """Ensure news_raw has UNIQUE(source_id, source) constraint.
+
+    SQLite cannot add constraints to existing tables, so we recreate the table
+    if the constraint is missing.
+    """
+    # Check if the correct UNIQUE constraint exists
+    table_sql = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='news_raw'"
+    ).fetchone()
+    if table_sql and "source_id" in table_sql[0] and "UNIQUE(source_id, source)" in table_sql[0]:
+        return
+
+    # Recreate table with proper constraint
+    conn.execute("ALTER TABLE news_raw RENAME TO news_raw_old")
+    conn.execute("""CREATE TABLE news_raw (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id    TEXT NOT NULL,
+        title        TEXT NOT NULL,
+        content      TEXT,
+        level        TEXT,
+        source       TEXT NOT NULL DEFAULT 'cls',
+        published_at TEXT NOT NULL,
+        fetched_at   TEXT DEFAULT (datetime('now')),
+        UNIQUE(source_id, source)
+    )""")
+    conn.execute("INSERT OR IGNORE INTO news_raw (source_id, title, content, level, source, published_at, fetched_at) "
+                 "SELECT source_id, title, content, level, source, published_at, fetched_at FROM news_raw_old")
+    conn.execute("DROP TABLE news_raw_old")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_news_raw_published ON news_raw(published_at)")
+
+
+_MIGRATIONS.append((9, [
+    """SELECT 1""",
+]))
+
+
 def init_db() -> None:
     """Initialize database: create tables and run pending migrations.
 
@@ -318,6 +355,8 @@ def init_db() -> None:
             if current < target_version:
                 if target_version == 8:
                     _migration_8(conn)
+                elif target_version == 9:
+                    _migration_9(conn)
                 else:
                     for stmt in statements:
                         try:

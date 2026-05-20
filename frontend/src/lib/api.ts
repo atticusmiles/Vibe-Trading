@@ -195,6 +195,16 @@ export const api = {
   adoptProposal: (id: number) => request<ProposalItem>(`/api/proposals/${id}/adopt`, { method: "POST" }),
   rejectProposal: (id: number) => request<ProposalItem>(`/api/proposals/${id}/reject`, { method: "POST" }),
   cancelProposal: (id: number) => request<ProposalItem>(`/api/proposals/${id}/cancel`, { method: "POST" }),
+
+  // News
+  listNewsDigests: (params?: { start_date?: string; end_date?: string }) =>
+    request<NewsDigestItem[]>("/api/news/digests" + (params ? "?" + new URLSearchParams(Object.entries(params).filter(([, v]) => v).map(([k, v]) => [k, v!])).toString() : "")),
+  getLatestDigest: () => request<NewsDigestItem>("/api/news/digests/latest"),
+  getDigestDetail: (id: number) => request<NewsDigestItem>(`/api/news/digests/${id}`),
+  triggerDigest: (target_date?: string) =>
+    request<NewsDigestItem>("/api/news/digests/trigger" + (target_date ? `?target_date=${target_date}` : ""), { method: "POST" }),
+  listRecentNews: (params?: { limit?: number }) =>
+    request<NewsItem[]>("/api/news/recent" + (params?.limit ? `?limit=${params.limit}` : "")),
 };
 
 // --- Swarm types ---
@@ -463,4 +473,25 @@ export interface ProposalListResponse {
   total: number;
   page: number;
   per_page: number;
+}
+
+// --- News types ---
+
+export interface NewsDigestItem {
+  id: number;
+  user_id: number;
+  digest_date: string;
+  content: string;
+  summary: string | null;
+  created_at: string;
+}
+
+export interface NewsItem {
+  id: number;
+  source_id: string;
+  title: string;
+  content: string | null;
+  level: string | null;
+  source: string;
+  published_at: string;
 }

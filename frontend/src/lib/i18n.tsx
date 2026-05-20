@@ -145,6 +145,11 @@ const messages = {
   actionLabel: "操作", sourceLabel: "来源",
   noPendingProposals: "暂无待审批提案",
   pendingCount: "条待审批提案",
+  // News
+  news: "新闻", newsDigests: "每日简报", recentNews: "最新快讯",
+  noDigests: "暂无新闻简报", triggerDigest: "生成简报",
+  digestGenerating: "正在生成...", digestGenerated: "简报生成成功",
+  digestTriggerFailed: "生成失败", viewDetail: "查看详情",
   expandProposals: "展开",
   approve: "审批",
   approveAll: "全部采纳", rejectAll: "全部拒绝",
