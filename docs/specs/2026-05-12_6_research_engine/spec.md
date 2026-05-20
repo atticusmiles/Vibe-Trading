@@ -17,11 +17,12 @@ scan_stocks      → 股票候选 → research_stocks      → 股票提案
 - 每个调研 run 只处理 1 个候选，并发调度保证吞吐
 - 趋势/行业采用 researcher → pro + con → manager 辩论模式
 - 股票采用 9-agent 深度分析模式（多空辩论 + 风险评估 + 交易建议）
+- 所有 agent system_prompt 使用中文
 
 **触发方式**：
 - scan_trends：定时启动（每天），也可手动触发
 - scan_industries：双重触发 — 事件驱动（趋势 proposed 时）+ 定时（每天），也可手动触发
-- scan_stocks：手动启动（行业 proposed 后，用户主动触发）
+- scan_stocks：双重触发 — 事件驱动（行业 proposed 时）+ 定时（每天），也可手动触发
 - 调研：半自动 — 用户在前端看到 pending 候选后，勾选并启动调研
 
 **前置条件**：阶段 4（提案审批）、阶段 5（数据源 + 新闻）。
@@ -91,57 +92,50 @@ pending → researching（batch-research 启动时标记）
 
 Scanner / Decider Agent 调用，批量写入候选。
 
+### 3.1 `manage_candidates` Tool
+
+Scanner / Researcher / Pro-Con / Manager 均可调用，通过 `action` 区分操作。
+
 ```python
-class AddCandidatesTool(BaseTool):
-    name = "add_candidates"
+class ManageCandidatesTool(BaseTool):
+    name = "manage_candidates"
     parameters = {
+        "action": "str — add | update",
         "target_type": "str — trend / industry / stock",
-        "candidates": "str — JSON array [{name, code?, score?, reason?}]",
-    # UNIQUE(target_type, name, date(created_at)) 按天去重：
-    #   同一天同名同类型自动跳过，次日可重新入选
-```
-
-### 3.2 `update_candidate` Tool
-
-Researcher / Decider 调用，写入调研报告或更新决策状态。
-
-```python
-class UpdateCandidateTool(BaseTool):
-    name = "update_candidate"
-    parameters = {
-        "target_name": "str — 候选名称",
-        "target_type": "str — trend / industry / stock（与 name 组合定位，避免重名歧义）",
-        "status": "str — optional, proposed / passed",
-        "conclusion": "str — optional，决策原因",
+        "target_name": "str — 候选名称（update 时必填）",
+        "candidates": "str — JSON array [{name, code?, score?, reason?}]（add 时必填）",
         "report": "str — optional，Markdown 主调研报告",
         "report_type": "str — optional，macro_analysis / tech_analysis / ...",
         "extra_report": "str — optional，JSON {agent_id, title, content}，追加到 extra_reports",
+        "status": "str — optional, proposed / passed",
+        "conclusion": "str — optional，决策原因",
     }
+    # add: 批量写入候选，INSERT OR IGNORE 按天去重（UNIQUE target_type+name+date(created_at)）
+    # update: 按 (target_type, target_name) 定位，支持 report / extra_report / status / conclusion
+    # extra_report 追加不覆盖，status 仅接受 proposed/passed（researching 由 API 设置）
 ```
 
-- status 由 dispatch 层（batch-research API）原子设置为 "researching"，agent 不负责此状态变更
-- Researcher 调用 `update_candidate(name, type, report="...", report_type="...")` 只写报告
-- Decider 调用 `update_candidate(name, type, status="proposed"/"passed", conclusion="...")` 做决策
-- 股票管线的多视角分析师调用 `update_candidate(name, type, extra_report={...})` 追加分析
+### 3.2 `manage_proposals` Tool
 
-### 3.3 `create_proposal` Tool
-
-Decider Agent 调用，创建提案。复用阶段 4 proposals service。
+Manager / risk_manager 调用，处理所有提案动作。
 
 ```python
-class CreateProposalTool(BaseTool):
-    name = "create_proposal"
+class ManageProposalsTool(BaseTool):
+    name = "manage_proposals"
     parameters = {
+        "action": "str — create | update | cancel",
         "target_type": "str — trend | industry | stock",
-        "action": "str — create | update",
-        "title": "str — proposal title",
+        "target_name": "str — 候选名称",
+        "title": "str — proposal title（create/update 时必填）",
         "payload": "str — JSON string（实体表字段：trends/industries/stocks）",
         "confidence": "int — 0-10",
+        "conclusion": "str — optional，cancel 时必填",
         "summary": "str — optional",
     }
-    # 创建 proposal 记录（target_type + target_id 指向实体表）
+    # create: 创建 proposal + 原子更新 candidate status=proposed + 回写 proposal_id + 触发事件检查
+    # update: 保鲜时结论显著变化，更新已有 proposal 的 payload
+    # cancel: 取消 proposal（status→cancelled）+ 更新 candidate status→passed
     # proposal adopted 后数据落地到 trends/industries/stocks 表
-    # 创建后自动回写 candidate.proposal_id
 ```
 
 **数据流转关系**：
@@ -165,7 +159,7 @@ research_candidates (筛选中间态) → proposals (审批流) → trends/indus
 扫描阶段（生产者）                    candidates 表                    调研阶段（消费者，可并发）
 
 ┌── scanner ──┐                                                     ┌── researcher_1 ──┐  ┌── researcher_2 ──┐
-│ 单 agent    │──→ add_candidates ──→ pending 候选 ──→ 调度分发 ──→ │ 候选 A,B         │  │ 候选 C,D         │
+│ 单 agent    │──→ manage_candidates ──→ pending 候选 ──→ 调度分发 ──→ │ 候选 A,B         │  │ 候选 C,D         │
 │ 发现候选    │                                                     └──────────────────┘  └──────────────────┘
 └─────────────┘                                                           ↓                      ↓
                                                                     ┌── decider ──┐    ┌── decider ──┐
@@ -198,14 +192,14 @@ research_candidates (筛选中间态) → proposals (审批流) → trends/indus
 
 | Agent | 角色 | Tools | 职责 |
 |-------|------|-------|------|
-| trend_scanner | 趋势扫描器 | fetch_news, fetch_kline, fetch_quote, add_candidates, load_skill | 从新闻+行情中识别候选趋势 |
+| trend_scanner | 趋势扫描器 | fetch_news, fetch_kline, fetch_quote, manage_candidates, load_skill | 从新闻+行情中识别候选趋势 |
 
 **DAG**：`task-scan`（单 task）
 
 **system_prompt 要点**：
 - 广度优先：fetch_news(limit=50, days=7) 读取近 7 天新闻明细 + fetch_news(mode="digest", days=90) 读取近 90 天新闻摘要，结合主要指数行情
 - 识别正在形成的趋势信号（政策方向、资金异动、产业变化）
-- 对每个信号调用 add_candidates（target_type: trend），给出 initial_score 和 source_context
+- 对每个信号调用 manage_candidates(action="add", target_type: trend)，给出 initial_score 和 source_context
 - 宁多勿漏，后续由 researcher 深度过滤
 
 **上下文需求**：
@@ -224,16 +218,16 @@ research_candidates (筛选中间态) → proposals (审批流) → trends/indus
 
 | Agent | 角色 | Tools | 职责 |
 |-------|------|-------|------|
-| trend_researcher | 趋势调研员 | fetch_news, fetch_kline, fetch_quote, fetch_research, update_candidate, load_skill | 深度调研候选趋势 |
-| trend_pro | 趋势支持方 | update_candidate, load_skill | 论证该趋势成立的理由 |
-| trend_con | 趋势反对方 | update_candidate, load_skill | 论证该趋势不成立或风险 |
-| trend_manager | 趋势决策者 | update_candidate, create_proposal, load_skill | 综合正反意见做 proposed/passed 决策 |
+| trend_researcher | 趋势调研员 | fetch_news, fetch_kline, fetch_quote, fetch_research, manage_candidates, load_skill | 深度调研候选趋势 |
+| trend_pro | 趋势支持方 | manage_candidates, load_skill | 论证该趋势成立的理由 |
+| trend_con | 趋势反对方 | manage_candidates, load_skill | 论证该趋势不成立或风险 |
+| trend_manager | 趋势决策者 | manage_candidates, manage_proposals, load_skill | 综合正反意见做 proposed/passed 决策 |
 
 **DAG**：`task-research → task-pro + task-con（并行）→ task-manager`
 
 **trend_researcher system_prompt 要点**：
 - 调研 {candidate_names} 中的候选（状态已为 researching）
-- update_candidate(name, type, report="...", report_type="macro_analysis")
+- manage_candidates(action="update", name, type, report="...", report_type="macro_analysis")
 - 多维度验证：宏观指标、政策连贯性、历史类似趋势、当前所处阶段
 
 **trend_researcher 上下文需求**：
@@ -246,12 +240,12 @@ research_candidates (筛选中间态) → proposals (审批流) → trends/indus
 
 **trend_pro system_prompt 要点**：
 - 读取 {upstream_context} 中 researcher 的调研报告
-- update_candidate(name, type, extra_report={agent_id: "trend_pro", title: "趋势成立论点", content: "..."})
+- manage_candidates(action="update", name, type, extra_report={agent_id: "trend_pro", title: "趋势成立论点", content: "..."})
 - 从数据中找到支持该趋势成立的证据
 
 **trend_con system_prompt 要点**：
 - 读取 {upstream_context} 中 researcher 的调研报告
-- update_candidate(name, type, extra_report={agent_id: "trend_con", title: "趋势风险论点", content: "..."})
+- manage_candidates(action="update", name, type, extra_report={agent_id: "trend_con", title: "趋势风险论点", content: "..."})
 - 从数据中找到该趋势不成立或有风险的证据
 
 **trend_pro / trend_con 上下文需求**：
@@ -262,7 +256,7 @@ research_candidates (筛选中间态) → proposals (审批流) → trends/indus
 
 **trend_manager system_prompt 要点**：
 - 读取 {upstream_context} 中 researcher 调研报告 + pro/con 辩论
-- 权衡正反意见：proposed → create_proposal + update_candidate(name, type, "proposed")；passed → update_candidate(name, type, "passed", conclusion="原因")
+- 权衡正反意见：proposed → manage_proposals(action="create", ...)；passed → manage_candidates(action="update", name, type, status="passed", conclusion="原因")
 - 确保候选最终状态非 researching
 - 保鲜时：结论无显著变化则仅更新报告，不创建新提案
 
@@ -284,14 +278,14 @@ research_candidates (筛选中间态) → proposals (审批流) → trends/indus
 
 | Agent | 角色 | Tools | 职责 |
 |-------|------|-------|------|
-| industry_scanner | 行业扫描器 | fetch_news, fetch_financial, add_candidates, load_skill | 从活跃趋势中识别受益行业 |
+| industry_scanner | 行业扫描器 | fetch_news, fetch_financial, manage_candidates, load_skill | 从活跃趋势中识别受益行业 |
 
 **DAG**：`task-scan`（单 task）
 
 **system_prompt 要点**：
 - 从 {trend_context} 读取活跃趋势和近期新闻摘要
 - 识别每个趋势下的受益行业
-- 调用 add_candidates（target_type: industry），source_context 记录受益趋势
+- 调用 manage_candidates(action="add", target_type: industry)，source_context 记录受益趋势
 - 每个行业给出受益逻辑和 initial_score
 
 **上下文需求**：
@@ -311,17 +305,17 @@ research_candidates (筛选中间态) → proposals (审批流) → trends/indus
 
 | Agent | 角色 | Tools | 职责 |
 |-------|------|-------|------|
-| industry_researcher | 行业调研员 | fetch_financial, fetch_research, fetch_news, update_candidate, load_skill | 深度调研 |
-| industry_pro | 行业支持方 | update_candidate, load_skill | 论证该行业值得投资 |
-| industry_con | 行业反对方 | update_candidate, load_skill | 论证该行业的风险和不利因素 |
-| industry_manager | 行业决策者 | update_candidate, create_proposal, load_skill | 综合正反意见做 proposed/passed 决策 |
+| industry_researcher | 行业调研员 | fetch_financial, fetch_research, fetch_news, manage_candidates, load_skill | 深度调研 |
+| industry_pro | 行业支持方 | manage_candidates, load_skill | 论证该行业值得投资 |
+| industry_con | 行业反对方 | manage_candidates, load_skill | 论证该行业的风险和不利因素 |
+| industry_manager | 行业决策者 | manage_candidates, manage_proposals, load_skill | 综合正反意见做 proposed/passed 决策 |
 
 **DAG**：`task-research → task-pro + task-con（并行）→ task-manager`
 
 **industry_researcher system_prompt 要点**：
 - 调研 {candidate_names} 中的候选（状态已为 researching）
 - 调研：景气度、产业链分析、竞争格局、龙头股初筛
-- update_candidate(name, type, report="...", report_type="industry_deep_dive")
+- manage_candidates(action="update", name, type, report="...", report_type="industry_deep_dive")
 
 **industry_researcher 上下文需求**：
 | 来源 | 内容 | 获取方式 |
@@ -355,14 +349,14 @@ research_candidates (筛选中间态) → proposals (审批流) → trends/indus
 
 | Agent | 角色 | Tools | 职责 |
 |-------|------|-------|------|
-| stock_scanner | 股票扫描器 | fetch_financial, fetch_news, add_candidates, load_skill | 从已提案行业中识别候选股票 |
+| stock_scanner | 股票扫描器 | fetch_financial, fetch_news, manage_candidates, load_skill | 从已提案行业中识别候选股票 |
 
 **DAG**：`task-scan`（单 task）
 
 **system_prompt 要点**：
 - 从 {industry_names} 读取已提案行业
 - 对每个行业筛选 3-5 只候选股票（基本面 + 技术面初筛）
-- 调用 add_candidates（target_type: stock, code=股票代码），source_context 记录所属行业
+- 调用 manage_candidates(action="add", target_type: stock, code=股票代码)，source_context 记录所属行业
 - 给出初步评分和入选理由
 
 **上下文需求**：
@@ -382,15 +376,15 @@ research_candidates (筛选中间态) → proposals (审批流) → trends/indus
 
 | Agent | 角色 | Tools | 职责 |
 |-------|------|-------|------|
-| stock_researcher | 股票调研员 | fetch_kline, fetch_quote, fetch_financial, fetch_news, fetch_research, update_candidate, load_skill | 深度调研（技术+基本面+新闻） |
-| bull_analyst | 看涨分析师 | update_candidate, load_skill | 看涨论点 |
-| bear_analyst | 看跌分析师 | update_candidate, load_skill | 看跌论点 |
-| research_manager | 研究经理 | update_candidate, load_skill | 投资结论 |
-| trader | 交易员 | fetch_kline, fetch_quote, update_candidate, load_skill | 交易建议 |
-| aggressive_analyst | 激进分析师 | update_candidate, load_skill | 风险观点 |
-| conservative_analyst | 保守分析师 | update_candidate, load_skill | 风险观点 |
-| neutral_analyst | 中立分析师 | update_candidate, load_skill | 风险观点 |
-| risk_manager | 风控经理 | update_candidate, create_proposal, load_skill | 最终决策 |
+| stock_researcher | 股票调研员 | fetch_kline, fetch_quote, fetch_financial, fetch_news, fetch_research, manage_candidates, load_skill | 深度调研（技术+基本面+新闻） |
+| bull_analyst | 看涨分析师 | manage_candidates, load_skill | 看涨论点 |
+| bear_analyst | 看跌分析师 | manage_candidates, load_skill | 看跌论点 |
+| research_manager | 研究经理 | manage_candidates, load_skill | 投资结论 |
+| trader | 交易员 | fetch_kline, fetch_quote, manage_candidates, load_skill | 交易建议 |
+| aggressive_analyst | 激进分析师 | manage_candidates, load_skill | 风险观点 |
+| conservative_analyst | 保守分析师 | manage_candidates, load_skill | 风险观点 |
+| neutral_analyst | 中立分析师 | manage_candidates, load_skill | 风险观点 |
+| risk_manager | 风控经理 | manage_candidates, manage_proposals, load_skill | 最终决策 |
 
 **DAG**：
 
@@ -407,9 +401,9 @@ task-research ──┬── task-bull  ─┐
 ```
 
 - stock_researcher 深度调研候选，写入 report
-- 多视角分析师通过 update_candidate(name, type, extra_report={...}) 追加分析到 extra_reports
+- 多视角分析师通过 manage_candidates(action="update", name, type, extra_report={...}) 追加分析到 extra_reports
 - 后续多空辩论、风险评估基于调研报告展开（通过 {upstream_context}）
-- risk_manager 做最终决策：create_proposal + "proposed" 或 "passed"
+- risk_manager 做最终决策：manage_proposals(action="create") 提案 或 manage_candidates(action="update", status="passed") 放弃
 - 确保候选最终状态非 researching
 - 保鲜时：结论无显著变化则仅更新报告，不创建新提案
 
@@ -488,7 +482,7 @@ POST   /api/research/candidates/batch-research       批量启动调研（每个
 | 趋势 proposed | candidate.status 变为 `proposed` 且 target_type=`trend` | 自动构建 trend_context（所有 proposed 趋势 + 60 天新闻摘要），启动 scan_industries |
 | 行业 proposed | candidate.status 变为 `proposed` 且 target_type=`industry` | 启动 scan_stocks，industry_names 取所有 proposed 行业 |
 
-事件来源：`update_candidate` tool 写入 status 变更时，检查是否满足触发条件。
+事件来源：`manage_candidates` tool 写入 status 变更时，检查是否满足触发条件。
 
 ### 6.3 保鲜调度
 
@@ -496,7 +490,7 @@ POST   /api/research/candidates/batch-research       批量启动调研（每个
 
 1. 筛选待保鲜记录 → 创建临时 candidate → 启动 research YAML
 2. researcher 用最新数据重新调研，参考旧报告作为上下文
-3. 结论显著变化 → `create_proposal` 创建新提案（人工审批后才更新实体表）
+3. 结论显著变化 → `manage_proposals(action="create")` 创建新提案（人工审批后才更新实体表）
 4. 结论无显著变化 → 仅更新 candidate 报告，不创建提案
 
 | target_type | 频率 | 执行逻辑 |
@@ -608,9 +602,8 @@ POST   /api/research/candidates/batch-research       批量启动调研（每个
 ## 8. 验收标准
 
 - [ ] 6 个 YAML：3 scan + 3 research，scan 单 task，趋势/行业 researcher → pro + con → manager，股票 9-agent 复杂 DAG
-- [ ] `add_candidates` 批量写入候选（pending），写入 source_run_id 和 source_context
-- [ ] `update_candidate` 按 (target_type, name) 定位，写入 report / extra_report / 决策状态
-- [ ] `create_proposal` 仅对最优候选创建提案，自动回写 proposal_id
+- [ ] `manage_candidates` 支持 add（批量写入+按天去重）和 update（report/extra_report/status/conclusion）
+- [ ] `manage_proposals` 支持 create/update/cancel，创建后自动回写 proposal_id
 - [ ] batch-research 启动时原子标记 researching + research_run_id，防止并发重复消费
 - [ ] 每次 research run 只处理 1 个候选
 - [ ] 并发调度：可同时启动多个 research run（每个候选独立 run），互不干扰
