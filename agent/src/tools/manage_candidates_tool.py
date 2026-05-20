@@ -95,9 +95,19 @@ class ManageCandidatesTool(BaseTool):
         from src.db.database import get_db
 
         with get_db() as conn:
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             for c in candidates:
                 name = c.get("name", "").strip()
                 if not name:
+                    continue
+                # Per-day dedup: skip if same target_type+name already exists today
+                existing = conn.execute(
+                    "SELECT 1 FROM research_candidates "
+                    "WHERE target_type = ? AND name = ? AND created_at >= ?",
+                    (target_type, name, today),
+                ).fetchone()
+                if existing:
+                    skipped += 1
                     continue
                 code = c.get("code")
                 score = c.get("score", 0)

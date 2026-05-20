@@ -51,6 +51,10 @@ class TestKline:
         assert len(bars) > 0
         assert bars[-1].close > 0
 
+    @pytest.mark.skipif(
+        not __import__("importlib").util.find_spec("mootdx"),
+        reason="mootdx not installed",
+    )
     def test_weekly_kline(self):
         from src.datasources.market import get_kline
 
@@ -75,6 +79,10 @@ class TestKline:
 
 @pytest.mark.integration
 class TestQuote:
+    @pytest.mark.skipif(
+        not __import__("importlib").util.find_spec("mootdx"),
+        reason="mootdx not installed",
+    )
     def test_single_quote(self):
         from src.datasources.market import get_quote
 
@@ -83,6 +91,10 @@ class TestQuote:
         assert d["price"] > 0 or d["pre_close"] > 0  # may be after hours
         assert "bid1_price" in d
 
+    @pytest.mark.skipif(
+        not __import__("importlib").util.find_spec("mootdx"),
+        reason="mootdx not installed",
+    )
     def test_batch_quotes(self):
         from src.datasources.market import get_quotes
 
@@ -181,6 +193,10 @@ class TestFundamental:
         rows = run_async(get_financial_statements(SH_MAIN, year, 4, "balance"))
         assert len(rows) > 0
 
+    @pytest.mark.skipif(
+        not __import__("importlib").util.find_spec("mootdx"),
+        reason="mootdx not installed",
+    )
     def test_f10(self):
         from src.datasources.fundamental import get_f10
 

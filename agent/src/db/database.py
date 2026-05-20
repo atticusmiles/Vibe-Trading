@@ -361,8 +361,7 @@ _CREATE_CANDIDATES_TABLE = [
         conclusion      TEXT,
         proposal_id     INTEGER REFERENCES proposals(id),
         created_at      TEXT DEFAULT (datetime('now')),
-        updated_at      TEXT,
-        UNIQUE(target_type, name, date(created_at))
+        updated_at      TEXT
     )""",
     "CREATE INDEX IF NOT EXISTS idx_candidates_status ON research_candidates(target_type, status)",
     "CREATE INDEX IF NOT EXISTS idx_candidates_research_run ON research_candidates(research_run_id)",
