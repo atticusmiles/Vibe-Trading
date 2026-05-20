@@ -117,26 +117,13 @@ async def generate_daily_digest(target_date: str | None = None) -> dict[str, Any
 
 
 async def _scheduled_digest_job() -> None:
-    """Scheduled job: generate yesterday's digest via swarm preset.
-
-    Falls back to direct LLM call if swarm fails.
-    """
-    yesterday = (datetime.now(SHANGHAI_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
-    try:
-        run_id = _run_preset("digest_news", {"digest_date": yesterday})
-        if run_id:
-            logger.info("Started digest_news preset for %s (run %s)", yesterday, run_id)
-            return
-    except Exception:
-        logger.warning("Swarm digest failed, falling back to direct LLM", exc_info=True)
-
-    # Fallback: direct LLM call
-    try:
-        result = await generate_daily_digest()
-        if result:
-            logger.info("Fallback digest generated: %s", result["digest_date"])
-    except Exception:
-        logger.exception("Digest generation failed completely")
+    """Scheduled job: generate yesterday's digest via digest_news preset."""
+    target_date = (datetime.now(SHANGHAI_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
+    run_id = _run_preset("digest_news", {"digest_date": target_date})
+    if run_id:
+        logger.info("Started digest_news preset for %s (run %s)", target_date, run_id)
+    else:
+        logger.error("Failed to start digest_news preset for %s", target_date)
 
 
 def _run_preset(preset_name: str, user_vars: dict[str, str]) -> str | None:

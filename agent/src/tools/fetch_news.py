@@ -1,4 +1,4 @@
-"""Fetch news: stock-specific, keyword search, digest mode, or recent market-wide."""
+"""Fetch news: stock-specific, keyword search, digest read/write, or recent market-wide."""
 
 from __future__ import annotations
 
@@ -17,12 +17,12 @@ _MAX_CONTENT = 300
 class FetchNewsTool(BaseTool):
     name = "fetch_news"
     description = (
-        "Fetch news for a stock or the general market. "
+        "Fetch or manage news. "
         "With a stock code, returns stock-specific news. "
         "With a keyword, searches news by keyword. "
         "With mode='digest', returns daily news digests. "
-        "Without either, returns recent market-wide news. "
-        "Use 'days' to control lookback period."
+        "With mode='save_digest', saves a news digest. "
+        "Without either, returns recent market-wide news."
     )
     parameters = {
         "type": "object",
@@ -37,8 +37,8 @@ class FetchNewsTool(BaseTool):
             },
             "mode": {
                 "type": "string",
-                "description": "Fetch mode: 'digest' returns daily news summaries, default is raw news.",
-                "enum": ["digest"],
+                "description": "'digest' reads daily summaries, 'save_digest' writes one.",
+                "enum": ["digest", "save_digest"],
             },
             "days": {
                 "type": "integer",
@@ -49,11 +49,23 @@ class FetchNewsTool(BaseTool):
                 "description": "Max news items to return (default: 10, max: 50)",
                 "default": 10,
             },
+            "digest_date": {
+                "type": "string",
+                "description": "Date for save_digest mode (YYYY-MM-DD).",
+            },
+            "summary": {
+                "type": "string",
+                "description": "Brief summary for save_digest mode (2-3 sentences).",
+            },
+            "content": {
+                "type": "string",
+                "description": "Full Markdown digest content for save_digest mode.",
+            },
         },
         "required": [],
     }
     repeatable = True
-    is_readonly = True
+    is_readonly = False
 
     def execute(self, **kwargs: Any) -> str:
         code = kwargs.get("code")
@@ -63,6 +75,8 @@ class FetchNewsTool(BaseTool):
         limit = min(int(kwargs.get("limit", 10)), 50)
 
         try:
+            if mode == "save_digest":
+                return self._save_digest(kwargs)
             if code:
                 return self._stock_news(code, limit)
             if keyword:
@@ -106,6 +120,41 @@ class FetchNewsTool(BaseTool):
             {"status": "ok", "mode": "digest", "days": days or 60, "count": len(rows), "digests": rows},
             ensure_ascii=False,
         )
+
+    def _save_digest(self, kwargs: dict[str, Any]) -> str:
+        digest_date = (kwargs.get("digest_date") or "").strip()
+        summary = (kwargs.get("summary") or "").strip()
+        content = (kwargs.get("content") or "").strip()
+
+        if not digest_date or not summary or not content:
+            return _err("digest_date, summary, and content are required for save_digest")
+
+        user_id = _parse_int(kwargs.get("_user_id")) or 1
+
+        from src.db.database import get_db
+
+        with get_db() as conn:
+            cursor = conn.execute(
+                "INSERT INTO news_digests (user_id, digest_date, content, summary) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(user_id, digest_date) DO UPDATE SET "
+                "content=excluded.content, summary=excluded.summary",
+                (user_id, digest_date, content, summary),
+            )
+            digest_id = cursor.lastrowid
+
+        return json.dumps(
+            {"status": "ok", "mode": "save_digest", "digest_id": digest_id, "digest_date": digest_date},
+            ensure_ascii=False,
+        )
+
+
+def _parse_int(val: Any) -> int:
+    if isinstance(val, int):
+        return val
+    if isinstance(val, str) and val.strip().isdigit():
+        return int(val)
+    return 0
 
 
 def _date_range(days: int) -> tuple[str, str]:

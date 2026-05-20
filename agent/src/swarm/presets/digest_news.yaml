@@ -14,13 +14,10 @@ agents:
       {upstream_context}
 
       ## 工作流程
-      1. 调用 fetch_news(days=1) 获取最近一天的新闻
+      1. 调用 fetch_news(days=1, limit=50) 获取最近一天的新闻
       2. 如有需要，调用 fetch_news(mode="digest", days=7) 查看近期摘要作为参考
       3. 综合分析后，生成结构化摘要
-      4. 调用 save_digest 保存结果：
-         - digest_date: "{digest_date}"
-         - summary: 2-3句话总结当日市场情绪和关键看点
-         - content: 完整 Markdown 正文
+      4. 调用 fetch_news(mode="save_digest", digest_date="{digest_date}", summary="2-3句总结", content="完整Markdown正文") 保存结果
 
       ## 摘要结构
       1. **市场概览** — 主要指数表现、市场情绪（2-3句话）
@@ -30,9 +27,9 @@ agents:
 
       ## 注意事项
       - 引用具体数据和事实，不要泛泛而谈
-      - summary 要精炼，作为前端快速预览用
-      - content 用 Markdown 格式，方便展示
-    tools: [bash, read_file, write_file, fetch_news, save_digest, load_skill]
+      - summary 要精炼（2-3句话），作为前端快速预览用
+      - content 用 Markdown 格式
+    tools: [bash, read_file, write_file, fetch_news, load_skill]
     skills: [web-reader, global-macro, china-a-shares]
     max_iterations: 15
     timeout_seconds: 180
@@ -43,10 +40,10 @@ tasks:
     prompt_template: |
       请分析 {digest_date} 的财经新闻，生成每日市场摘要。
 
-      先用 fetch_news 获取新闻，分析后用 save_digest 保存结果。
+      先用 fetch_news 获取新闻，分析后用 fetch_news(mode="save_digest", ...) 保存结果。
     depends_on: []
 
 variables:
   - name: digest_date
-    description: "要生成摘要的日期，YYYY-MM-DD 格式（默认为昨天）"
-    required: false
+    description: "要生成摘要的日期，YYYY-MM-DD 格式"
+    required: true
