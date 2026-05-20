@@ -388,7 +388,8 @@ class TestValuationMocked:
 class TestFundamentalMocked:
     @patch("src.datasources.fundamental._baostock_snapshot_sync")
     def test_get_snapshot(self, mock_bs):
-        from src.datasources.fundamental import get_financial_snapshot
+        from src.datasources.fundamental import cache_snapshot, get_financial_snapshot
+        cache_snapshot.clear()
         mock_bs.return_value = {"roe": 15.5, "net_profit": 5000000}
 
         result = run_async(get_financial_snapshot("600519"))

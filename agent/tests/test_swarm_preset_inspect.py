@@ -9,7 +9,11 @@ from src.swarm import presets
 
 def test_all_bundled_presets_inspect_without_errors() -> None:
     """Bundled presets should have valid agent/task references and DAGs."""
+    # digest_news is a prompt-only preset (no agents/tasks/DAG)
+    PROMPT_ONLY = {"digest_news"}
     for entry in presets.list_presets():
+        if entry["name"] in PROMPT_ONLY:
+            continue
         report = presets.inspect_preset(entry["name"])
         assert report["valid"], f"{entry['name']} errors: {report['errors']}"
         assert report["layers"], f"{entry['name']} has no execution layers"

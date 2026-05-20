@@ -130,12 +130,7 @@ class TestManageCandidatesAdd:
         assert result["inserted"] == 2
 
     def test_add_duplicate_same_day_skipped(self, mock_db):
-        """Test that adding the same candidate twice on the same day is skipped.
-
-        Note: Test DB schema lacks the UNIQUE constraint with date(),
-        so we verify the tool handles the exception gracefully instead.
-        In production, the DB constraint enforces dedup.
-        """
+        """Test per-day dedup: same candidate on same day is skipped."""
         from src.tools.manage_candidates_tool import ManageCandidatesTool
         tool = ManageCandidatesTool()
         tool.execute(
@@ -143,14 +138,12 @@ class TestManageCandidatesAdd:
             target_type="trend",
             candidates=json.dumps([{"name": "AI算力增长", "score": 8}]),
         )
-        # Second add succeeds in test DB (no UNIQUE), but in production would be skipped
         result = json.loads(tool.execute(
             action="add",
             target_type="trend",
             candidates=json.dumps([{"name": "AI算力增长", "score": 9}]),
         ))
-        # Either inserted (test DB) or skipped (production DB) — both are valid
-        assert result["status"] == "ok"
+        assert result["skipped"] == 1
 
     def test_add_with_run_id(self, mock_db):
         from src.tools.manage_candidates_tool import ManageCandidatesTool

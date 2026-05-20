@@ -117,13 +117,105 @@ async def generate_daily_digest(target_date: str | None = None) -> dict[str, Any
 
 
 async def _scheduled_digest_job() -> None:
-    """Scheduled job: generate yesterday's digest via digest_news preset."""
+    """Scheduled job: generate yesterday's digest using preset prompt."""
     target_date = (datetime.now(SHANGHAI_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
-    run_id = _run_preset("digest_news", {"digest_date": target_date})
-    if run_id:
-        logger.info("Started digest_news preset for %s (run %s)", target_date, run_id)
-    else:
-        logger.error("Failed to start digest_news preset for %s", target_date)
+    try:
+        result = await generate_daily_digest_from_preset(target_date)
+        if result:
+            logger.info("Digest generated for %s", result["digest_date"])
+    except Exception:
+        logger.exception("Scheduled digest job failed")
+
+
+async def generate_daily_digest_from_preset(
+    target_date: str | None = None,
+) -> dict[str, Any] | None:
+    """Generate a news digest: load prompt from YAML, call LLM, write to DB.
+
+    Args:
+        target_date: YYYY-MM-DD format, defaults to yesterday.
+
+    Returns:
+        The saved digest dict, or None if no news found.
+    """
+    if target_date is None:
+        target_date = (datetime.now(SHANGHAI_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # 1. Fetch news for target date
+    start = f"{target_date} 00:00:00"
+    end = f"{target_date} 23:59:59"
+
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT title, content, level, source, published_at FROM news_raw "
+            "WHERE published_at >= ? AND published_at <= ? "
+            "ORDER BY published_at ASC",
+            (start, end),
+        ).fetchall()
+
+    if not rows:
+        logger.info("No news found for %s, skipping digest", target_date)
+        return None
+
+    news_text_parts = []
+    for r in rows:
+        news_text_parts.append(f"[{r['published_at']}] [{r['level'] or 'N/A'}] {r['title']}")
+        if r["content"]:
+            news_text_parts.append(f"  {r['content'][:200]}")
+    news_text = "\n".join(news_text_parts)
+    if len(news_text) > 8000:
+        news_text = news_text[:8000] + "\n... (truncated)"
+
+    # 2. Load prompt from preset YAML
+    import yaml as _yaml
+    from pathlib import Path
+
+    preset_path = Path(__file__).resolve().parent.parent / "swarm" / "presets" / "digest_news.yaml"
+    try:
+        with open(preset_path, "r", encoding="utf-8") as f:
+            preset = _yaml.safe_load(f)
+        prompt = preset["prompt_template"].replace("{news_content}", news_text).replace(
+            "{digest_date}", target_date
+        ).replace("{news_count}", str(len(rows)))
+    except Exception:
+        logger.warning("Failed to load digest_news preset, using inline prompt")
+        prompt = (
+            "你是一名专业财经分析师。请根据以下当日财经新闻快讯，生成一份结构化的每日市场总结。\n\n"
+            "要求：\n1. 用 Markdown 格式输出\n"
+            "2. 包含：市场概览（2-3句话）、重点事件（3-5条）、板块影响分析\n"
+            "3. 用 2-3 句话总结当日市场情绪和关键看点作为 summary\n"
+            "4. 输出格式：先 summary（纯文本），然后空一行，接着是完整 Markdown 正文作为 content\n\n"
+            f"日期：{target_date}\n新闻条数：{len(rows)}\n\n--- 新闻内容 ---\n{news_text}"
+        )
+
+    # 3. Call LLM
+    try:
+        from src.providers.llm import build_llm
+        llm = build_llm()
+        response = llm.invoke(prompt)
+        full_text = response.content if hasattr(response, "content") else str(response)
+    except Exception:
+        logger.exception("LLM call failed for digest %s", target_date)
+        full_text = f"（LLM 生成失败，共 {len(rows)} 条新闻）"
+
+    # 4. Split summary and content
+    parts = full_text.split("\n\n", 1)
+    summary = parts[0].strip() if len(parts) >= 1 else ""
+    content = parts[1].strip() if len(parts) >= 2 else full_text
+
+    # 5. Write to DB
+    with get_db() as conn:
+        cursor = conn.execute(
+            "INSERT INTO news_digests (user_id, digest_date, content, summary) "
+            "VALUES (1, ?, ?, ?) "
+            "ON CONFLICT(user_id, digest_date) DO UPDATE SET "
+            "content=excluded.content, summary=excluded.summary",
+            (target_date, content, summary),
+        )
+        digest_id = cursor.lastrowid
+
+    logger.info("Digest saved for %s (id=%d, %d news items)", target_date, digest_id, len(rows))
+    return {"id": digest_id, "digest_date": target_date, "summary": summary}
 
 
 def _run_preset(preset_name: str, user_vars: dict[str, str]) -> str | None:

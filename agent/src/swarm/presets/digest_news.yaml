@@ -1,49 +1,27 @@
 name: digest_news
 title: "每日新闻摘要"
-description: "分析指定日期的新闻，生成结构化市场摘要并保存"
+description: "分析指定日期的新闻，生成结构化市场摘要（直接 LLM 调用，不经过 swarm）"
 
-agents:
-  - id: digest_analyst
-    role: 每日市场分析师
-    system_prompt: |
-      你是一位专业财经分析师，负责分析每日市场新闻并生成结构化摘要。
+prompt_template: |
+  你是一位专业财经分析师，负责分析每日市场新闻并生成结构化摘要。
 
-      ## 任务
-      分析 {digest_date} 的财经新闻，生成一份结构化的每日市场总结。
+  ## 任务
+  分析 {digest_date} 的财经新闻，生成一份结构化的每日市场总结。
 
-      {upstream_context}
+  ## 新闻内容
+  {news_content}
 
-      ## 工作流程
-      1. 调用 fetch_news(days=1, limit=50) 获取最近一天的新闻
-      2. 如有需要，调用 fetch_news(mode="digest", days=7) 查看近期摘要作为参考
-      3. 综合分析后，生成结构化摘要
-      4. 调用 fetch_news(mode="save_digest", digest_date="{digest_date}", summary="2-3句总结", content="完整Markdown正文") 保存结果
+  ## 摘要结构
+  1. **市场概览** — 主要指数表现、市场情绪（2-3句话）
+  2. **重点事件** — 3-5条最重要的新闻，每条含标题、影响分析
+  3. **板块影响** — 哪些板块受益/受损，逻辑简述
+  4. **后市展望** — 对接下来1-3天市场的简要判断
 
-      ## 摘要结构
-      1. **市场概览** — 主要指数表现、市场情绪（2-3句话）
-      2. **重点事件** — 3-5条最重要的新闻，每条含标题、影响分析
-      3. **板块影响** — 哪些板块受益/受损，逻辑简述
-      4. **后市展望** — 对接下来1-3天市场的简要判断
+  ## 输出格式
+  先用 2-3 句话总结当日市场情绪和关键看点作为 summary（纯文本），然后空一行，接着是完整 Markdown 正文作为 content。
 
-      ## 注意事项
-      - 引用具体数据和事实，不要泛泛而谈
-      - summary 要精炼（2-3句话），作为前端快速预览用
-      - content 用 Markdown 格式
-    tools: [bash, read_file, write_file, fetch_news, load_skill]
-    skills: [web-reader, global-macro, china-a-shares]
-    max_iterations: 15
-    timeout_seconds: 180
-
-tasks:
-  - id: task-digest
-    agent_id: digest_analyst
-    prompt_template: |
-      请分析 {digest_date} 的财经新闻，生成每日市场摘要。
-
-      先用 fetch_news 获取新闻，分析后用 fetch_news(mode="save_digest", ...) 保存结果。
-    depends_on: []
-
-variables:
-  - name: digest_date
-    description: "要生成摘要的日期，YYYY-MM-DD 格式"
-    required: true
+  ## 注意事项
+  - 引用具体数据和事实，不要泛泛而谈
+  - summary 要精炼（2-3句话），作为前端快速预览用
+  - content 用 Markdown 格式
+  - 新闻条数：{news_count}

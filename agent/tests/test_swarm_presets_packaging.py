@@ -41,10 +41,15 @@ def test_list_presets_returns_full_roster() -> None:
 
 def test_every_preset_yaml_is_loadable() -> None:
     """Every YAML in the bundle must parse and expose required keys."""
+    # digest_news is a prompt-only preset (no agents/tasks), skip structure checks
+    PROMPT_ONLY = {"digest_news"}
     for entry in list_presets():
         name = entry["name"]
         data = load_preset(name)
         assert isinstance(data, dict), f"preset {name} did not parse to dict"
+        if name in PROMPT_ONLY:
+            assert data.get("prompt_template"), f"prompt-only preset {name} has no prompt_template"
+            continue
         assert data.get("agents"), f"preset {name} has no agents"
         assert data.get("tasks"), f"preset {name} has no tasks"
 
