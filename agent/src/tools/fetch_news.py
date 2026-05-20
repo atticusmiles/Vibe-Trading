@@ -1,12 +1,13 @@
-"""Fetch news: stock-specific, keyword search, or recent market-wide."""
+"""Fetch news: stock-specific, keyword search, digest mode, or recent market-wide."""
 
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from typing import Any
 
 from src.agent.tools import BaseTool
-from src.datasources import get_recent_news, search_news, search_stock_news
+from src.datasources import get_news_digest, get_recent_news, search_news, search_stock_news
 from src.datasources.base import normalize_code
 from src.tools._async_compat import run_async
 
@@ -19,7 +20,9 @@ class FetchNewsTool(BaseTool):
         "Fetch news for a stock or the general market. "
         "With a stock code, returns stock-specific news. "
         "With a keyword, searches news by keyword. "
-        "Without either, returns recent market-wide news."
+        "With mode='digest', returns daily news digests. "
+        "Without either, returns recent market-wide news. "
+        "Use 'days' to control lookback period."
     )
     parameters = {
         "type": "object",
@@ -31,6 +34,15 @@ class FetchNewsTool(BaseTool):
             "keyword": {
                 "type": "string",
                 "description": "Keyword to search news (optional, used when code is not provided).",
+            },
+            "mode": {
+                "type": "string",
+                "description": "Fetch mode: 'digest' returns daily news summaries, default is raw news.",
+                "enum": ["digest"],
+            },
+            "days": {
+                "type": "integer",
+                "description": "Number of days to look back (default: 7 for recent, 60 for digest).",
             },
             "limit": {
                 "type": "integer",
@@ -46,6 +58,8 @@ class FetchNewsTool(BaseTool):
     def execute(self, **kwargs: Any) -> str:
         code = kwargs.get("code")
         keyword = kwargs.get("keyword")
+        mode = kwargs.get("mode")
+        days = kwargs.get("days")
         limit = min(int(kwargs.get("limit", 10)), 50)
 
         try:
@@ -53,7 +67,9 @@ class FetchNewsTool(BaseTool):
                 return self._stock_news(code, limit)
             if keyword:
                 return self._search(keyword, limit)
-            return self._recent(limit)
+            if mode == "digest":
+                return self._digest(days)
+            return self._recent(limit, days)
         except Exception as exc:
             return _err(str(exc))
 
@@ -63,8 +79,7 @@ class FetchNewsTool(BaseTool):
         news = [_trim(item.to_dict()) for item in items]
         return json.dumps(
             {"status": "ok", "code": code, "count": len(news), "news": news},
-            ensure_ascii=False,
-            default=str,
+            ensure_ascii=False, default=str,
         )
 
     def _search(self, keyword: str, limit: int) -> str:
@@ -73,17 +88,31 @@ class FetchNewsTool(BaseTool):
         return json.dumps(
             {"status": "ok", "mode": "search", "keyword": keyword, "count": len(news), "news": news},
             ensure_ascii=False,
-            default=str,
         )
 
-    def _recent(self, limit: int) -> str:
-        rows = run_async(get_recent_news(limit=limit))
+    def _recent(self, limit: int, days: int | None = None) -> str:
+        sd, ed = _date_range(days or 7)
+        rows = run_async(get_recent_news(start_date=sd, end_date=ed, limit=limit))
         news = [_trim(r) for r in rows]
         return json.dumps(
-            {"status": "ok", "mode": "recent", "count": len(news), "news": news},
+            {"status": "ok", "mode": "recent", "days": days or 7, "count": len(news), "news": news},
             ensure_ascii=False,
-            default=str,
         )
+
+    def _digest(self, days: int | None = None) -> str:
+        sd, ed = _date_range(days or 60)
+        rows = run_async(get_news_digest(start_date=sd, end_date=ed))
+        return json.dumps(
+            {"status": "ok", "mode": "digest", "days": days or 60, "count": len(rows), "digests": rows},
+            ensure_ascii=False,
+        )
+
+
+def _date_range(days: int) -> tuple[str, str]:
+    now = datetime.now()
+    start = (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    end = now.strftime("%Y-%m-%d %H:%M:%S")
+    return start, end
 
 
 def _trim(item: dict) -> dict:

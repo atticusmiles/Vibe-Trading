@@ -392,7 +392,7 @@ def run_worker(
                 {"tool": tc.name, "iteration": iteration},
             )
             tc_start = time.monotonic()
-            args = {**tc.arguments, "run_dir": str(artifact_dir)}
+            args = {**tc.arguments, "run_dir": str(artifact_dir), "_run_id": user_vars.get("_run_id", ""), "_user_id": user_vars.get("_user_id", "")}
             result = registry.execute(tc.name, args)
             tc_elapsed = time.monotonic() - tc_start
             _emit(

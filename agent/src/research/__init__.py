@@ -1,4 +1,4 @@
-"""Research modules: trends, industries, stocks, proposals, and dashboard."""
+"""Research modules: trends, industries, stocks, proposals, candidates, and dashboard."""
 
 from __future__ import annotations
 
@@ -8,9 +8,11 @@ def register_all_routes(app) -> None:
     from .industries import register_routes as reg_industries
     from .stocks import register_routes as reg_stocks
     from .proposals import register_proposal_routes as reg_proposals
+    from .candidates import register_candidates_routes as reg_candidates
     from .dashboard import register_routes as reg_dashboard
     reg_trends(app)
     reg_industries(app)
     reg_stocks(app)
     reg_proposals(app)
+    reg_candidates(app)
     reg_dashboard(app)

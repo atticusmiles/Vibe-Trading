@@ -8,6 +8,7 @@ Provides:
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -125,11 +126,264 @@ async def _scheduled_digest_job() -> None:
         logger.exception("Scheduled digest job failed")
 
 
+def _run_preset(preset_name: str, user_vars: dict[str, str]) -> str | None:
+    """Start a swarm run with the given preset and variables.
+
+    Returns the run ID or None on failure.
+    """
+    try:
+        from src.swarm.runtime import SwarmRuntime
+        from src.swarm.store import SwarmStore
+        from src.core.config import get_swarm_dir
+
+        store = SwarmStore(base_dir=get_swarm_dir())
+        runtime = SwarmRuntime(store=store)
+        run = runtime.start_run(preset_name, user_vars)
+        logger.info("Started preset %s run %s", preset_name, run.id)
+        return run.id
+    except Exception:
+        logger.exception("Failed to start preset %s", preset_name)
+        return None
+
+
+def _build_trend_context() -> str:
+    """Build trend context string from active trends + 60-day news digest."""
+    import json as _json
+    from src.db.database import get_db as _get_db
+
+    parts = []
+    with _get_db() as conn:
+        trends = conn.execute(
+            "SELECT title, status, confidence, evidence FROM trends "
+            "WHERE status IN ('proposed', 'adopted') ORDER BY confidence DESC"
+        ).fetchall()
+        if trends:
+            parts.append("## 活跃趋势")
+            for t in trends:
+                parts.append(f"- [{t['status']}] {t['title']} (置信度:{t['confidence']}) {t['evidence'] or ''}")
+
+        # Get 60-day news digest
+        rows = conn.execute(
+            "SELECT digest_date, summary FROM news_digests "
+            "ORDER BY digest_date DESC LIMIT 60"
+        ).fetchall()
+        if rows:
+            parts.append("\n## 近期新闻摘要")
+            for r in rows:
+                parts.append(f"- {r['digest_date']}: {r['summary'] or ''}")
+
+    return "\n".join(parts) if parts else "(无活跃趋势)"
+
+
+def _build_existing_list(target_type: str) -> str:
+    """Build a list of existing entities for the given target type."""
+    table_map = {"trend": "trends", "industry": "industries", "stock": "stocks"}
+    table = table_map.get(target_type)
+    if not table:
+        return "(无)"
+
+    from src.db.database import get_db as _get_db
+    with _get_db() as conn:
+        if target_type == "trend":
+            rows = conn.execute(
+                "SELECT title, status, confidence FROM trends "
+                "WHERE status IN ('proposed', 'adopted') ORDER BY updated_at DESC"
+            ).fetchall()
+            return "\n".join(f"- [{r['status']}] {r['title']} (置信度:{r['confidence']})" for r in rows) or "(无)"
+        elif target_type == "industry":
+            rows = conn.execute(
+                "SELECT name, status, confidence, reason FROM industries "
+                "WHERE status IN ('proposed', 'adopted') ORDER BY updated_at DESC"
+            ).fetchall()
+            return "\n".join(f"- [{r['status']}] {r['name']} (置信度:{r['confidence']}) {r['reason'] or ''}" for r in rows) or "(无)"
+        elif target_type == "stock":
+            rows = conn.execute(
+                "SELECT name, code, status, confidence, position FROM stocks "
+                "WHERE status IN ('proposed', 'adopted') ORDER BY updated_at DESC"
+            ).fetchall()
+            return "\n".join(f"- [{r['status']}] {r['name']}({r['code']}) 置信度:{r['confidence']} 仓位:{r['position'] or 0}" for r in rows) or "(无)"
+    return "(无)"
+
+
+def _build_industry_details() -> str:
+    """Build industry details for stock scanning."""
+    from src.db.database import get_db as _get_db
+    with _get_db() as conn:
+        rows = conn.execute(
+            "SELECT name, confidence, reason, research_report FROM industries "
+            "WHERE status IN ('proposed', 'adopted') ORDER BY confidence DESC"
+        ).fetchall()
+    if not rows:
+        return "(无已提案行业)"
+    parts = []
+    for r in rows:
+        parts.append(f"### {r['name']} (置信度:{r['confidence']})")
+        if r["reason"]:
+            parts.append(f"理由: {r['reason']}")
+        if r["research_report"]:
+            parts.append(f"报告摘要: {r['research_report'][:500]}...")
+    return "\n\n".join(parts)
+
+
+def _build_current_portfolio() -> str:
+    """Build current portfolio summary."""
+    from src.db.database import get_db as _get_db
+    with _get_db() as conn:
+        rows = conn.execute(
+            "SELECT name, code, position, industry_name FROM stocks "
+            "WHERE status IN ('proposed', 'adopted') AND position > 0"
+        ).fetchall()
+    if not rows:
+        return "(空仓)"
+    return "\n".join(f"- {r['name']}({r['code']}) 仓位:{r['position']:.1%} 行业:{r['industry_name'] or 'N/A'}" for r in rows)
+
+
+def _scan_trends_job() -> None:
+    """Scheduled job: scan for new trends."""
+    existing = _build_existing_list("trend")
+    _run_preset("scan_trends", {
+        "market": "A股",
+        "existing_trends": existing,
+    })
+
+
+def _scan_industries_job() -> None:
+    """Scheduled job: scan for industries based on active trends."""
+    trend_ctx = _build_trend_context()
+    existing = _build_existing_list("industry")
+    _run_preset("scan_industries", {
+        "trend_context": trend_ctx,
+        "existing_industries": existing,
+        "existing_trends": _build_existing_list("trend"),
+    })
+
+
+def _scan_stocks_job() -> None:
+    """Scheduled job: scan for stocks based on active industries."""
+    details = _build_industry_details()
+    existing = _build_existing_list("stock")
+    portfolio = _build_current_portfolio()
+    with get_db() as conn:
+        names = conn.execute(
+            "SELECT name FROM industries WHERE status IN ('proposed', 'adopted')"
+        ).fetchall()
+    industry_names = ", ".join(r["name"] for r in names) or "(无)"
+
+    _run_preset("scan_stocks", {
+        "industry_names": industry_names,
+        "industry_details": details,
+        "existing_stocks": existing,
+        "current_portfolio": portfolio,
+    })
+
+
+def _refresh_entities_job(target_type: str) -> None:
+    """Refresh (保鲜) proposed/adopted entities by creating temp candidates and running research."""
+    import json as _json
+
+    table_map = {"trend": "trends", "industry": "industries", "stock": "stocks"}
+    table = table_map[target_type]
+
+    with get_db() as conn:
+        cutoff = (datetime.now(SHANGHAI_TZ) - timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
+        if target_type == "trend":
+            rows = conn.execute(
+                "SELECT id, title, confidence, evidence FROM trends "
+                "WHERE status IN ('proposed', 'adopted') AND updated_at < ?",
+                (cutoff,),
+            ).fetchall()
+        elif target_type == "industry":
+            rows = conn.execute(
+                "SELECT id, name, confidence, reason FROM industries "
+                "WHERE status IN ('proposed', 'adopted') AND updated_at < ?",
+                (cutoff,),
+            ).fetchall()
+        elif target_type == "stock":
+            rows = conn.execute(
+                "SELECT id, name, code, confidence, industry_name FROM stocks "
+                "WHERE status IN ('proposed', 'adopted') AND updated_at < ?",
+                (cutoff,),
+            ).fetchall()
+
+    if not rows:
+        logger.info("No %s entities to refresh", target_type)
+        return
+
+    preset_name = _PRESET_MAP[target_type]
+    for row in rows:
+        name = row["title"] if target_type == "trend" else row["name"]
+
+        # Create a temporary candidate for the refresh run
+        with get_db() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO research_candidates "
+                    "(target_type, name, code, source_context, initial_score, status, source_run_id) "
+                    "VALUES (?, ?, ?, ?, ?, 'pending', 'refresh')",
+                    (
+                        target_type,
+                        name,
+                        row.get("code"),
+                        f"保鲜刷新: {dict(row)}",
+                        row["confidence"],
+                    ),
+                )
+            except Exception:
+                logger.debug("Candidate for %s/%s already exists today, skipping", target_type, name)
+                continue
+
+            cand = conn.execute(
+                "SELECT id FROM research_candidates "
+                "WHERE target_type = ? AND name = ? ORDER BY created_at DESC LIMIT 1",
+                (target_type, name),
+            ).fetchone()
+            if not cand:
+                continue
+
+            cand_id = cand["id"]
+            run_id = str(uuid.uuid4())
+            conn.execute(
+                "UPDATE research_candidates SET status = 'researching', research_run_id = ? WHERE id = ?",
+                (run_id, cand_id),
+            )
+
+        # Build user_vars
+        user_vars = {
+            "candidate_names": _json.dumps([name], ensure_ascii=False),
+            "candidate_info": _json.dumps({"name": name, "source_context": "保鲜刷新", "initial_score": row["confidence"]}, ensure_ascii=False),
+            "_run_id": run_id,
+            "_user_id": "1",
+        }
+
+        # Add existing entity context for conservative update policy
+        if target_type == "trend":
+            user_vars["existing_trend"] = _json.dumps(dict(row), ensure_ascii=False)
+            user_vars["existing_trends"] = _build_existing_list("trend")
+        elif target_type == "industry":
+            user_vars["existing_industry"] = _json.dumps(dict(row), ensure_ascii=False)
+            user_vars["existing_industries"] = _build_existing_list("industry")
+        elif target_type == "stock":
+            user_vars["existing_stock"] = _json.dumps(dict(row), ensure_ascii=False)
+            user_vars["existing_stocks"] = _build_existing_list("stock")
+            user_vars["current_portfolio"] = _build_current_portfolio()
+
+        _run_preset(preset_name, user_vars)
+
+
+_PRESET_MAP = {
+    "trend": "research_trends",
+    "industry": "research_industries",
+    "stock": "research_stocks",
+}
+
+
 def setup_scheduler(app_state: dict[str, Any] | None = None) -> Any:
     """Create and configure the scheduler with jobs.
 
     Returns the scheduler instance (not started).
     """
+    import uuid as _uuid
+
     sched = create_scheduler()
 
     # Daily digest at 8:00 AM Shanghai time
@@ -150,6 +404,34 @@ def setup_scheduler(app_state: dict[str, Any] | None = None) -> Any:
         minute=0,
         id="cleanup_news",
         replace_existing=True,
+    )
+
+    # Research engine: scan jobs
+    sched.add_job(
+        _scan_trends_job, "cron", hour=8, minute=30,
+        id="scan_trends", replace_existing=True,
+    )
+    sched.add_job(
+        _scan_industries_job, "cron", hour=9, minute=0,
+        id="scan_industries", replace_existing=True,
+    )
+    sched.add_job(
+        _scan_stocks_job, "cron", hour=9, minute=30,
+        id="scan_stocks", replace_existing=True,
+    )
+
+    # Refresh (保鲜) jobs
+    sched.add_job(
+        lambda: _refresh_entities_job("trend"), "cron", hour=10, minute=0,
+        id="refresh_trends", replace_existing=True,
+    )
+    sched.add_job(
+        lambda: _refresh_entities_job("industry"), "cron", hour=10, minute=30,
+        id="refresh_industries", replace_existing=True,
+    )
+    sched.add_job(
+        lambda: _refresh_entities_job("stock"), "cron", hour=11, minute=0,
+        id="refresh_stocks", replace_existing=True,
     )
 
     return sched

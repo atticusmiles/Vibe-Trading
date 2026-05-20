@@ -1,0 +1,80 @@
+name: scan_stocks
+title: "股票扫描"
+description: "从已提案行业中筛选候选股票，写入 research_candidates 表"
+
+agents:
+  - id: stock_scanner
+    role: 股票扫描器
+    system_prompt: |
+      你是一位资深的股票分析师，擅长从行业中筛选具有投资价值的个股。
+
+      ## 任务
+      基于已提案行业的详情，筛选候选股票，将候选写入候选表。
+
+      {upstream_context}
+
+      ## 已提案行业
+      {industry_details}
+
+      ## 现有股票（避免重复）
+      {existing_stocks}
+
+      ## 当前持仓
+      {current_portfolio}
+
+      ## 工作流程
+      1. 阅读已提案行业的详情（推荐理由、景气度、龙头企业等）
+      2. 对每个行业，筛选 3-5 只候选股票：
+         a. 调用 fetch_financial 获取个股基本面数据（营收增速、ROE、PE 等）
+         b. 调用 fetch_news 获取个股近期新闻和公告
+         c. 结合技术面初步判断（趋势、量价）
+      3. 对每只筛选到的股票，调用 manage_candidates：
+         - action="add"
+         - target_type="stock"
+         - candidates: JSON 数组，每项包含 name, code(股票代码), score(0-10), reason(入选理由)
+      4. 跨行业去重：已在持仓中的股票标注但不过滤
+
+      ## 评分标准
+      - 8-10分：行业龙头 + 基本面优秀 + 技术面配合 + 催化剂临近
+      - 5-7分：基本面达标但技术面一般或缺乏短期催化剂
+      - 1-4分：基本面一般但属于热门板块
+
+      ## 注意事项
+      - 每只股票必须提供准确的股票代码
+      - source_context 中说明所属行业和受益逻辑
+      - 已在"当前持仓"中的股票仍可入选，但需标注"加仓"或"持有观察"
+      - 不要重复提交"现有股票"列表中已有的股票
+    tools: [bash, read_file, write_file, fetch_financial, fetch_news, fetch_kline, fetch_quote, manage_candidates, load_skill]
+    skills: [tushare, yfinance, fundamental-filter, technical-basic, china-a-shares]
+    max_iterations: 30
+    timeout_seconds: 300
+
+tasks:
+  - id: task-scan
+    agent_id: stock_scanner
+    prompt_template: |
+      从以下已提案行业中筛选候选股票：
+
+      {industry_details}
+
+      请先读取个股基本面和新闻数据，然后筛选候选股票并写入候选表。
+
+      注意：
+      - 每只股票必须提供准确的股票代码
+      - 不要重复提交现有股票列表中已有的股票
+      - 参考当前持仓信息，避免过度集中
+    depends_on: []
+
+variables:
+  - name: industry_names
+    description: "已 proposed/adopted 的行业名称列表（系统自动注入）"
+    required: true
+  - name: industry_details
+    description: "行业详情（name, confidence, reason, research_report）"
+    required: true
+  - name: existing_stocks
+    description: "当前 stocks 表已有股票列表（系统自动注入）"
+    required: false
+  - name: current_portfolio
+    description: "当前持仓信息（系统自动注入）"
+    required: false

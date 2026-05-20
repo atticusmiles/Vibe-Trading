@@ -11,7 +11,7 @@ from src.core.config import get_data_dir
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = 9
+_SCHEMA_VERSION = 10
 
 _CREATE_SCHEMA_META = """
 CREATE TABLE IF NOT EXISTS _schema_meta (
@@ -342,6 +342,33 @@ def _migration_9(conn: sqlite3.Connection) -> None:
 _MIGRATIONS.append((9, [
     """SELECT 1""",
 ]))
+
+_CREATE_CANDIDATES_TABLE = [
+    """CREATE TABLE IF NOT EXISTS research_candidates (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        target_type     TEXT NOT NULL,
+        name            TEXT NOT NULL,
+        code            TEXT,
+        source_context  TEXT,
+        initial_score   INTEGER DEFAULT 0,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        source_run_id   TEXT,
+        research_run_id TEXT,
+        report          TEXT,
+        report_type     TEXT,
+        reported_at     TEXT,
+        extra_reports   TEXT DEFAULT '[]',
+        conclusion      TEXT,
+        proposal_id     INTEGER REFERENCES proposals(id),
+        created_at      TEXT DEFAULT (datetime('now')),
+        updated_at      TEXT,
+        UNIQUE(target_type, name, date(created_at))
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_candidates_status ON research_candidates(target_type, status)",
+    "CREATE INDEX IF NOT EXISTS idx_candidates_research_run ON research_candidates(research_run_id)",
+]
+
+_MIGRATIONS.append((10, _CREATE_CANDIDATES_TABLE))
 
 
 def init_db() -> None:

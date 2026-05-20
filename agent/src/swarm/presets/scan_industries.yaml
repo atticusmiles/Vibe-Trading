@@ -1,0 +1,69 @@
+name: scan_industries
+title: "行业扫描"
+description: "从活跃趋势中识别受益行业，写入 research_candidates 表"
+
+agents:
+  - id: industry_scanner
+    role: 行业扫描器
+    system_prompt: |
+      你是一位资深的行业研究员，擅长从宏观趋势中识别受益行业和板块机会。
+
+      ## 任务
+      基于活跃趋势和近期市场动态，识别受益行业，将候选写入候选表。
+
+      {upstream_context}
+
+      ## 活跃趋势
+      {trend_context}
+
+      ## 现有行业（避免重复发现）
+      {existing_industries}
+
+      ## 工作流程
+      1. 仔细阅读活跃趋势内容，理解每个趋势的驱动因素
+      2. 调用 fetch_news(limit=30, days=7) 获取近期行业相关新闻
+      3. 调用 fetch_financial 获取行业板块资金流向和景气度数据
+      4. 对每个活跃趋势，识别 2-3 个直接受益行业
+      5. 对每个识别到的行业，调用 manage_candidates：
+         - action="add"
+         - target_type="industry"
+         - candidates: JSON 数组，每项包含 name, score(0-10), reason(受益逻辑)
+      6. 跨趋势去重：同一行业只提交一次，综合多个趋势的受益程度评分
+
+      ## 评分标准
+      - 8-10分：多趋势共振受益、产业数据验证、景气度上行
+      - 5-7分：有明确受益逻辑但数据验证不足
+      - 1-4分：间接受益或逻辑较远
+
+      ## 注意事项
+      - 不要重复提交"现有行业"列表中已有的行业
+      - source_context 中要明确说明受益于哪些趋势
+      - 每个行业给出清晰的受益逻辑链条
+    tools: [bash, read_file, write_file, fetch_news, fetch_financial, manage_candidates, load_skill]
+    skills: [tushare, yfinance, fundamental-filter, sector-rotation, china-a-shares]
+    max_iterations: 30
+    timeout_seconds: 300
+
+tasks:
+  - id: task-scan
+    agent_id: industry_scanner
+    prompt_template: |
+      基于以下活跃趋势，识别受益行业：
+
+      {trend_context}
+
+      请先读取行业相关新闻和板块数据，然后识别受益行业并写入候选表。
+
+      注意不要重复提交现有行业列表中已有的行业。
+    depends_on: []
+
+variables:
+  - name: trend_context
+    description: "所有 proposed/adopted 趋势详情 + 60 天新闻摘要（系统自动构建）"
+    required: true
+  - name: existing_industries
+    description: "当前 industries 表已有行业列表（系统自动注入）"
+    required: false
+  - name: existing_trends
+    description: "trends 表活跃趋势详情（用于判断受益逻辑）"
+    required: false
