@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from fastapi import Depends, FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.db import get_db
 from .base import require_real_user
@@ -17,6 +17,11 @@ class RecentlyUpdatedItem(BaseModel):
     title: str
     confidence: int = 5
     updated_at: str | None = None
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _coerce_confidence(cls, v):
+        return int(v)
 
 
 class DashboardResponse(BaseModel):

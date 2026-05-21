@@ -1,6 +1,6 @@
 name: research_trends
 title: "趋势深度调研"
-description: "对候选趋势进行深度调研：researcher → pro + con 辩论 → manager 决策"
+description: "对候选趋势进行深度调研：researcher → pro/con 两轮辩论（立论+反驳）→ manager 决策"
 
 agents:
   - id: trend_researcher
@@ -32,14 +32,15 @@ agents:
          - report="Markdown 调研报告"
          - report_type="macro_analysis"
 
-      ## 报告结构
-      1. 趋势概述（一句话）
-      2. 核心驱动因素（2-3 个）
-      3. 数据验证（引用具体数据和来源）
-      4. 历史类比（类似趋势的演变路径）
-      5. 当前阶段判断
-      6. 关键风险点
-      7. 综合评分（0-10）和判断（成立/不成立/待观察）
+      ## 报告结构（Markdown 格式）
+      使用 Markdown 格式撰写，每个章节用 `##` 标题，关键数据用 **粗体**，要点用列表：
+      1. `## 趋势概述` — 一句话总结
+      2. `## 核心驱动因素` — 2-3 个驱动因素，每个用加粗标题 + 数据支撑
+      3. `## 数据验证` — 引用具体数据和来源，必要时使用表格对比
+      4. `## 历史类比` — 类似趋势的演变路径和持续时间
+      5. `## 当前阶段判断` — 萌芽期/加速期/成熟期/衰退期
+      6. `## 关键风险点` — 列表形式，每项标注影响程度
+      7. `## 综合评估` — 评分（0-10）和判断（成立/不成立/待观察）
     tools: [bash, read_file, write_file, fetch_news, fetch_kline, fetch_quote, fetch_research, manage_candidates, load_skill]
     skills: [tushare, yfinance, web-reader, global-macro, china-a-shares]
     max_iterations: 20
@@ -50,26 +51,26 @@ agents:
     system_prompt: |
       你是一位善于发现机会的分析师，你的任务是为候选趋势成立的理由辩护。
 
-      ## 任务
-      为以下候选趋势提供支持论点：{candidate_names}
+      ## 候选趋势
+      {candidate_names}
 
       {upstream_context}
 
-      ## 工作流程
-      1. 仔细阅读上游调研报告中与趋势成立相关的证据
-      2. 从以下角度补充支持论点：
-         - 政策利好信号
-         - 资金流向数据
-         - 产业基本面向好
-         - 技术面支撑
-         - 国际对标（海外类似趋势表现）
-      3. 调用 manage_candidates 写入你的观点：
-         - action="update", target_type="trend", target_name="候选名"
-         - extra_report: JSON {"agent_id": "trend_pro", "title": "趋势成立论点", "content": "Markdown 内容"}
+      ## 分析角度
+      - 政策利好信号
+      - 资金流向数据
+      - 产业基本面向好
+      - 技术面支撑
+      - 国际对标（海外类似趋势表现）
 
-      ## 输出要求
-      - 引用具体数据和事实
-      - 每个论点要有数据支撑
+      ## 输出方式
+      调用 manage_candidates 写入观点：
+      - action="update", target_type="trend", target_name="候选名"
+      - extra_report: JSON {"agent_id": "（任务中指定）", "title": "标题", "content": "Markdown 内容"}
+
+      ## 要求
+      - 使用 Markdown 格式撰写：`##` 分章节，**粗体** 标注关键数据，`-` 列表列举要点
+      - 引用具体数据和事实支撑每个论点
       - 给出信心评分（0-10）
     tools: [bash, read_file, write_file, manage_candidates, load_skill]
     skills: [global-macro, china-a-shares]
@@ -81,24 +82,25 @@ agents:
     system_prompt: |
       你是一位审慎的风险分析师，你的任务是指出候选趋势的风险和不成立因素。
 
-      ## 任务
-      为以下候选趋势提供反对论点和风险分析：{candidate_names}
+      ## 候选趋势
+      {candidate_names}
 
       {upstream_context}
 
-      ## 工作流程
-      1. 仔细阅读上游调研报告，找出逻辑薄弱环节
-      2. 从以下角度寻找风险和反对证据：
-         - 政策反复或不确定性
-         - 资金流入放缓或流出
-         - 产业数据不达预期
-         - 历史上类似趋势失败的案例
-         - 外部环境变化（国际形势、宏观逆风）
-      3. 调用 manage_candidates 写入你的观点：
-         - action="update", target_type="trend", target_name="候选名"
-         - extra_report: JSON {"agent_id": "trend_con", "title": "趋势风险论点", "content": "Markdown 内容"}
+      ## 分析角度
+      - 政策反复或不确定性
+      - 资金流入放缓或流出
+      - 产业数据不达预期
+      - 历史上类似趋势失败的案例
+      - 外部环境变化（国际形势、宏观逆风）
 
-      ## 输出要求
+      ## 输出方式
+      调用 manage_candidates 写入观点：
+      - action="update", target_type="trend", target_name="候选名"
+      - extra_report: JSON {"agent_id": "（任务中指定）", "title": "标题", "content": "Markdown 内容"}
+
+      ## 要求
+      - 使用 Markdown 格式撰写：`##` 分章节，**粗体** 标注关键数据，`-` 列表列举要点
       - 引用具体数据反驳
       - 指出逻辑链条中的薄弱环节
       - 给出风险等级（高/中/低）
@@ -121,12 +123,13 @@ agents:
       {existing_trend}
 
       ## 决策规则
-      1. 仔细权衡正反双方论点
-      2. 做出以下决策之一：
+      1. 仔细权衡正反双方在两轮辩论中的所有论点
+      2. 哪方的论据更充分、反驳更有力？是否有未被反驳的关键论点？
+      3. 做出以下决策之一：
 
       **决策A：proposed（推荐该趋势）**
-      - 调用 manage_candidates(action="update", target_type="trend", target_name="候选名", status="proposed", conclusion="推荐原因")
-      - 然后调用 manage_proposals(action="create", target_type="trend", proposal_action="create", title="提案标题", payload="JSON字段", confidence=评分, summary="提案说明")
+      - 第一步：调用 manage_proposals(action="create", target_type="trend", proposal_action="create", title="提案标题", payload="JSON字段", confidence=评分, summary="提案说明")
+      - 第二步：拿到返回的 proposal_id，调用 manage_candidates(action="update", target_type="trend", target_name="候选名", status="proposed", proposal_id=返回的ID, conclusion="推荐原因")
       - payload 示例：'{"title":"趋势标题","level":"mid-term","confidence":7,"evidence":"核心论据"}'
 
       **决策B：passed（不推荐，放弃该趋势）**
@@ -137,6 +140,7 @@ agents:
       - 只有结论显著不同时才创建新提案
 
       ## 输出要求
+      - 使用 Markdown 格式撰写决策理由
       - 明确给出决策和理由
       - 确保候选最终状态不是 researching
     tools: [bash, read_file, write_file, manage_candidates, manage_proposals, load_skill]
@@ -155,36 +159,86 @@ tasks:
       请进行多维度调研，验证趋势是否成立，并撰写结构化调研报告。
     depends_on: []
 
-  - id: task-pro
+  # ── 第一轮：立论 ──
+  - id: task-pro-r1
     agent_id: trend_pro
     prompt_template: |
-      为候选趋势 {candidate_names} 提供支持论点。
-      请基于调研报告中的证据，补充趋势成立的理由。
+      【第一轮：立论】
+      请为候选趋势 {candidate_names} 提供初始支持论点。
+
+      基于调研报告中的证据，从多个角度论证该趋势成立的理由。
+      写入 extra_report 时使用 agent_id: "trend_pro_r1", title: "趋势成立论点（立论）"。
     depends_on: [task-research]
     input_from:
       research_report: task-research
 
-  - id: task-con
+  - id: task-con-r1
     agent_id: trend_con
     prompt_template: |
-      为候选趋势 {candidate_names} 提供反对论点和风险分析。
-      请基于调研报告，指出趋势的风险和不成立因素。
+      【第一轮：立论】
+      请为候选趋势 {candidate_names} 提供初始反对论点和风险分析。
+
+      基于调研报告，指出趋势的风险和不成立因素。
+      写入 extra_report 时使用 agent_id: "trend_con_r1", title: "趋势风险论点（立论）"。
     depends_on: [task-research]
     input_from:
       research_report: task-research
 
+  # ── 第二轮：反驳 ──
+  - id: task-pro-r2
+    agent_id: trend_pro
+    prompt_template: |
+      【第二轮：反驳】
+      反对方在第一轮中提出了以下论点。请逐一反驳对方的观点，并补充新的支持证据。
+
+      要求：
+      1. 直接回应对方的具体论据，指出其逻辑漏洞或忽略的利好因素
+      2. 用新的数据或角度加强你的支持论点
+      3. 如果对方的某个论点确实有力，坦诚承认但说明为何不足以推翻整体判断
+
+      写入 extra_report 时使用 agent_id: "trend_pro_r2", title: "反驳反对方论点"。
+    depends_on: [task-con-r1]
+    input_from:
+      research_report: task-research
+      opponent_argument: task-con-r1
+
+  - id: task-con-r2
+    agent_id: trend_con
+    prompt_template: |
+      【第二轮：反驳】
+      支持方在第一轮中提出了以下论点。请逐一反驳对方的观点，并补充新的风险证据。
+
+      要求：
+      1. 直接回应对方的具体论据，指出其过度乐观或忽略的风险因素
+      2. 用新的数据或角度加强你的反对论点
+      3. 如果对方的某个论点确实有力，坦诚承认但说明为何整体风险仍然较高
+
+      写入 extra_report 时使用 agent_id: "trend_con_r2", title: "反驳支持方论点"。
+    depends_on: [task-pro-r1]
+    input_from:
+      research_report: task-research
+      opponent_argument: task-pro-r1
+
+  # ── 决策 ──
   - id: task-manager
     agent_id: trend_manager
     prompt_template: |
-      综合调研报告和正反辩论，为候选趋势 {candidate_names} 做出最终决策。
+      综合调研报告和两轮辩论（立论+反驳），为候选趋势 {candidate_names} 做出最终决策。
 
-      权衡正反双方论点后，给出 proposed 或 passed 的决策。
+      请特别注意：
+      - 第一轮中双方各提出了哪些核心论点
+      - 第二轮中双方是否成功反驳了对方，哪些论点未被有效回应
+      - 最终哪方的论据更有说服力
+
+      给出 proposed 或 passed 的决策。
       如果是保鲜调研，结论无显著变化时仅更新报告，不创建新提案。
-    depends_on: [task-pro, task-con]
+    depends_on: [task-pro-r2, task-con-r2]
     input_from:
       research_report: task-research
-      pro_analysis: task-pro
-      con_analysis: task-con
+      pro_r1: task-pro-r1
+      con_r1: task-con-r1
+      pro_r2: task-pro-r2
+      con_r2: task-con-r2
 
 variables:
   - name: candidate_names

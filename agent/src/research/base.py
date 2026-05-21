@@ -5,13 +5,10 @@ from __future__ import annotations
 import sqlite3
 from typing import Dict, Optional
 
-from fastapi import Depends, HTTPException, Request, Security, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from src.db import get_db
-
-_bearer = HTTPBearer(auto_error=False)
 
 # Target type → table name
 TABLE_MAP: Dict[str, str] = {"trend": "trends", "industry": "industries", "stock": "stocks"}
@@ -38,11 +35,13 @@ def status_filter(status: Optional[str]) -> str:
     return _STATUS_MAP.get(status, _STATUS_MAP[None])
 
 
-async def require_jwt(
-    request: Request,
-    cred: Optional[HTTPAuthorizationCredentials] = Security(_bearer),
-) -> int:
+async def require_jwt(request: Request) -> int:
     from src.auth.middleware import require_jwt_auth
+    auth = request.headers.get("authorization", "")
+    cred = None
+    if auth.lower().startswith("bearer "):
+        from fastapi.security import HTTPAuthorizationCredentials
+        cred = HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth[7:])
     return await require_jwt_auth(request, cred)
 
 

@@ -1489,6 +1489,64 @@ async def datasources_status(user_id: int = Depends(require_user)):
     return {"sources": sources, "timestamp": datetime.now().isoformat()}
 
 
+# ---------------------------------------------------------------------------
+# Research engine: manual scan trigger
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/research/scan/{target_type}")
+async def trigger_scan(
+    target_type: str,
+    user_id: int = Depends(require_user),
+):
+    """Manually trigger a scan job for the given target type (trends/industries/stocks)."""
+    if target_type not in ("trends", "industries", "stocks"):
+        raise HTTPException(status_code=400, detail=f"Invalid target_type: {target_type}")
+
+    from src.scheduler import (
+        _run_preset,
+        _build_existing_list,
+        _build_trend_context,
+        _build_industry_details,
+        _build_current_portfolio,
+    )
+
+    try:
+        if target_type == "trends":
+            run_id = _run_preset("scan_trends", {
+                "market": "A股",
+                "existing_trends": _build_existing_list("trend"),
+            })
+        elif target_type == "industries":
+            run_id = _run_preset("scan_industries", {
+                "trend_context": _build_trend_context(),
+                "existing_industries": _build_existing_list("industry"),
+                "existing_trends": _build_existing_list("trend"),
+            })
+        elif target_type == "stocks":
+            industry_details = _build_industry_details()
+            from src.db.database import get_db
+            with get_db() as conn:
+                names = conn.execute(
+                    "SELECT name FROM industries WHERE status IN ('proposed', 'adopted')"
+                ).fetchall()
+            industry_names = ", ".join(r["name"] for r in names) or "(无)"
+            run_id = _run_preset("scan_stocks", {
+                "industry_names": industry_names,
+                "industry_details": industry_details,
+                "existing_stocks": _build_existing_list("stock"),
+                "current_portfolio": _build_current_portfolio(),
+            })
+
+        if not run_id:
+            raise HTTPException(status_code=500, detail="Failed to start preset run")
+        return {"status": "ok", "run_id": run_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 def _check_import(module: str) -> bool:
     import importlib
     try:

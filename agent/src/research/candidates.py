@@ -6,7 +6,7 @@ import json
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from src.db import get_db
@@ -63,9 +63,8 @@ def _row_to_response(row: Any) -> CandidateResponse:
 
 
 def register_candidates_routes(app: FastAPI) -> None:
-    router = APIRouter(prefix="/api/research/candidates", tags=["research-candidates"])
 
-    @router.get("", response_model=CandidateListResponse)
+    @app.get("/api/research/candidates", response_model=CandidateListResponse)
     async def list_candidates(
         target_type: Optional[str] = Query(None),
         candidate_status: Optional[str] = Query(None, alias="status"),
@@ -103,7 +102,7 @@ def register_candidates_routes(app: FastAPI) -> None:
             total=total, page=page, per_page=per_page,
         )
 
-    @router.get("/{candidate_id}", response_model=CandidateResponse)
+    @app.get("/api/research/candidates/{candidate_id}", response_model=CandidateResponse)
     async def get_candidate(candidate_id: int, user_id: int = Depends(require_jwt)):
         with get_db() as conn:
             row = conn.execute(
@@ -113,7 +112,7 @@ def register_candidates_routes(app: FastAPI) -> None:
             raise HTTPException(404, "Candidate not found")
         return _row_to_response(row)
 
-    @router.post("/batch-research", response_model=BatchResearchResponse)
+    @app.post("/api/research/candidates/batch-research", response_model=BatchResearchResponse)
     async def batch_research(req: BatchResearchRequest, user_id: int = Depends(require_real_user)):
         with get_db() as conn:
             placeholders = ",".join("?" * len(req.candidate_ids))
@@ -212,5 +211,3 @@ def register_candidates_routes(app: FastAPI) -> None:
                 })
 
         return BatchResearchResponse(runs=runs, total=len(runs), skipped=skipped)
-
-    app.include_router(router)

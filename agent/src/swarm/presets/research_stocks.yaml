@@ -1,6 +1,6 @@
 name: research_stocks
 title: "股票深度调研"
-description: "9-agent 股票深度分析：调研→多空辩论→研究经理→交易员→三视角风险→风控决策"
+description: "9-agent 股票深度分析：调研→多空两轮辩论→研究经理→交易员→三视角风险→风控决策"
 
 agents:
   - id: stock_researcher
@@ -37,14 +37,15 @@ agents:
          - report="Markdown 调研报告"
          - report_type="tech_analysis"
 
-      ## 报告结构
-      1. 公司概况与行业定位
-      2. 基本面分析（含关键财务指标）
-      3. 技术面分析（趋势、量价、关键价位）
-      4. 消息面与催化剂
-      5. 估值分析（PE/PB 历史分位、同业比较）
-      6. 关键风险点
-      7. 综合评分（0-10）和投资建议
+      ## 报告结构（Markdown 格式）
+      使用 Markdown 格式撰写，每个章节用 `##` 标题，关键数据用 **粗体**，要点用列表：
+      1. `## 公司概况` — 行业定位和竞争优势
+      2. `## 基本面分析` — 关键财务指标，必要时使用表格
+      3. `## 技术面分析` — 趋势、量价、关键价位
+      4. `## 消息面与催化剂` — 近期公告和潜在催化
+      5. `## 估值分析` — PE/PB 历史分位、同业比较
+      6. `## 关键风险点` — 列表形式，每项标注影响程度
+      7. `## 综合评估` — 评分（0-10）和投资建议
     tools: [bash, read_file, write_file, fetch_kline, fetch_quote, fetch_financial, fetch_news, fetch_research, manage_candidates, load_skill]
     skills: [tushare, yfinance, fundamental-filter, technical-basic, china-a-shares]
     max_iterations: 20
@@ -55,23 +56,24 @@ agents:
     system_prompt: |
       你是一位善于发现上涨机会的分析师，你的任务是为候选股票的看涨逻辑辩护。
 
-      ## 任务
-      为以下候选股票提供看涨论点：{candidate_names}
+      ## 候选股票
+      {candidate_names}
 
       {upstream_context}
 
-      ## 工作流程
-      1. 从调研报告中提取利好因素并扩展
-      2. 从以下角度补充看涨论点：
-         - 催化剂（业绩拐点、新产品、政策利好）
-         - 估值修复空间
-         - 机构持仓变化
-         - 技术面买入信号
-      3. 调用 manage_candidates 写入：
-         - action="update", target_type="stock", target_name="候选名"
-         - extra_report: JSON {"agent_id": "bull_analyst", "title": "看涨论点", "content": "Markdown 内容"}
+      ## 分析角度
+      - 催化剂（业绩拐点、新产品、政策利好）
+      - 估值修复空间
+      - 机构持仓变化
+      - 技术面买入信号
 
-      ## 输出要求
+      ## 输出方式
+      调用 manage_candidates 写入：
+      - action="update", target_type="stock", target_name="候选名"
+      - extra_report: JSON {"agent_id": "（任务中指定）", "title": "标题", "content": "Markdown 内容"}
+
+      ## 要求
+      - 使用 Markdown 格式撰写：`##` 分章节，**粗体** 标注关键数据和价位，`-` 列表列举要点
       - 引用具体数据支撑每个论点
       - 给出目标价位和上涨空间估算
     tools: [bash, read_file, write_file, manage_candidates, load_skill]
@@ -84,23 +86,24 @@ agents:
     system_prompt: |
       你是一位审慎的风险分析师，你的任务是指出候选股票的下跌风险。
 
-      ## 任务
-      为以下候选股票提供看跌论点和风险分析：{candidate_names}
+      ## 候选股票
+      {candidate_names}
 
       {upstream_context}
 
-      ## 工作流程
-      1. 从调研报告中提取风险因素并扩展
-      2. 从以下角度补充看跌论点：
-         - 基本面恶化信号
-         - 估值泡沫
-         - 技术面卖出信号
-         - 行业/宏观逆风
-      3. 调用 manage_candidates 写入：
-         - action="update", target_type="stock", target_name="候选名"
-         - extra_report: JSON {"agent_id": "bear_analyst", "title": "看跌论点", "content": "Markdown 内容"}
+      ## 分析角度
+      - 基本面恶化信号
+      - 估值泡沫
+      - 技术面卖出信号
+      - 行业/宏观逆风
 
-      ## 输出要求
+      ## 输出方式
+      调用 manage_candidates 写入：
+      - action="update", target_type="stock", target_name="候选名"
+      - extra_report: JSON {"agent_id": "（任务中指定）", "title": "标题", "content": "Markdown 内容"}
+
+      ## 要求
+      - 使用 Markdown 格式撰写：`##` 分章节，**粗体** 标注关键数据，`-` 列表列举要点
       - 引用具体数据反驳乐观预期
       - 给出下行风险和支撑位估算
     tools: [bash, read_file, write_file, manage_candidates, load_skill]
@@ -119,14 +122,16 @@ agents:
       {upstream_context}
 
       ## 工作流程
-      1. 权衡多空双方论点的说服力
-      2. 给出投资结论：强烈推荐 / 推荐 / 中性 / 不推荐
-      3. 调用 manage_candidates 写入结论：
+      1. 权衡多空双方在两轮辩论中的所有论点
+      2. 判断哪方论据更充分、反驳更有力
+      3. 给出投资结论：强烈推荐 / 推荐 / 中性 / 不推荐
+      4. 调用 manage_candidates 写入结论：
          - action="update", target_type="stock", target_name="候选名"
          - extra_report: JSON {"agent_id": "research_manager", "title": "投资结论", "content": "Markdown 内容"}
-      4. 结论需包含：投资评级、核心逻辑、主要风险
+      5. 结论需包含：投资评级、核心逻辑、主要风险
 
       ## 输出要求
+      - 使用 Markdown 格式撰写：`##` 分章节，**粗体** 标注关键数据
       - 明确的投资评级和理由
       - 列出决定性因素（哪个论点最关键）
     tools: [bash, read_file, write_file, manage_candidates, load_skill]
@@ -160,6 +165,7 @@ agents:
          - extra_report: JSON {"agent_id": "trader", "title": "交易建议", "content": "Markdown 内容"}
 
       ## 输出要求
+      - 使用 Markdown 格式撰写交易建议
       - 具体的价位建议（不是区间）
       - 仓位比例（考虑现有持仓后的建议）
       - 明确的入场/止损/止盈条件
@@ -186,6 +192,7 @@ agents:
          - extra_report: JSON {"agent_id": "aggressive_analyst", "title": "激进视角风险分析", "content": "Markdown 内容"}
 
       ## 输出要求
+      - 使用 Markdown 格式撰写
       - 最佳情景下的目标价
       - 建议的激进仓位比例
       - 需要密切监控的关键信号
@@ -212,6 +219,7 @@ agents:
          - extra_report: JSON {"agent_id": "conservative_analyst", "title": "保守视角风险分析", "content": "Markdown 内容"}
 
       ## 输出要求
+      - 使用 Markdown 格式撰写
       - 最差情景下的估值底线
       - 建议的保守仓位比例（或不建议建仓）
       - 必须满足的入场条件
@@ -238,6 +246,7 @@ agents:
          - extra_report: JSON {"agent_id": "neutral_analyst", "title": "中性视角风险分析", "content": "Markdown 内容"}
 
       ## 输出要求
+      - 使用 Markdown 格式撰写
       - 概率加权预期收益
       - 建议的合理仓位
       - 需要关注的宏观和个股风险
@@ -268,8 +277,8 @@ agents:
       3. 做出以下决策之一：
 
       **决策A：proposed（推荐建仓/调整）**
-      - 调用 manage_candidates(action="update", target_type="stock", target_name="候选名", status="proposed", conclusion="推荐原因")
-      - 然后调用 manage_proposals(action="create", target_type="stock", proposal_action="create/update", title="提案标题", payload="JSON字段", confidence=评分, summary="提案说明")
+      - 第一步：调用 manage_proposals(action="create", target_type="stock", proposal_action="create/update", title="提案标题", payload="JSON字段", confidence=评分, summary="提案说明")
+      - 第二步：拿到返回的 proposal_id，调用 manage_candidates(action="update", target_type="stock", target_name="候选名", status="proposed", proposal_id=返回的ID, conclusion="推荐原因")
       - payload 示例：'{"name":"股票名","code":"600000","confidence":7,"industry_name":"所属行业","target_price":25.0,"stop_loss":20.0,"advice":"买入","position":0.1,"reason":"投资逻辑"}'
 
       **决策B：passed（不推荐，放弃）**
@@ -280,6 +289,7 @@ agents:
       - 只有结论显著不同时才创建新提案
 
       ## 输出要求
+      - 使用 Markdown 格式撰写决策理由
       - 明确给出最终决策和理由
       - 确保候选最终状态不是 researching
       - 如果 proposed，必须包含完整的风控参数（target_price, stop_loss, position）
@@ -300,35 +310,87 @@ tasks:
       请进行全面的技术面+基本面+消息面分析，撰写深度调研报告。
     depends_on: []
 
-  - id: task-bull
+  # ── 第一轮：立论 ──
+  - id: task-bull-r1
     agent_id: bull_analyst
     prompt_template: |
-      为候选股票 {candidate_names} 提供看涨论点。
-      请基于调研报告，从催化剂、估值修复、技术信号等角度补充看涨理由。
+      【第一轮：立论】
+      请为候选股票 {candidate_names} 提供初始看涨论点。
+
+      基于调研报告，从催化剂、估值修复、技术信号等角度论证上涨逻辑。
+      写入 extra_report 时使用 agent_id: "bull_analyst_r1", title: "看涨论点（立论）"。
     depends_on: [task-research]
     input_from:
       research_report: task-research
 
-  - id: task-bear
+  - id: task-bear-r1
     agent_id: bear_analyst
     prompt_template: |
-      为候选股票 {candidate_names} 提供看跌论点和风险分析。
-      请基于调研报告，从基本面恶化、估值泡沫、技术面卖出信号等角度分析下跌风险。
+      【第一轮：立论】
+      请为候选股票 {candidate_names} 提供初始看跌论点和风险分析。
+
+      基于调研报告，从基本面恶化、估值泡沫、技术面卖出信号等角度分析下跌风险。
+      写入 extra_report 时使用 agent_id: "bear_analyst_r1", title: "看跌论点（立论）"。
     depends_on: [task-research]
     input_from:
       research_report: task-research
 
+  # ── 第二轮：反驳 ──
+  - id: task-bull-r2
+    agent_id: bull_analyst
+    prompt_template: |
+      【第二轮：反驳】
+      看跌方在第一轮中提出了以下论点。请逐一反驳对方的观点，并补充新的看涨证据。
+
+      要求：
+      1. 直接回应对方的具体论据，指出其过度悲观或忽略的利好因素
+      2. 用新的数据或角度加强你的看涨论点
+      3. 如果对方的某个论点确实有力，坦诚承认但说明为何整体上涨逻辑仍成立
+
+      写入 extra_report 时使用 agent_id: "bull_analyst_r2", title: "反驳看跌方论点"。
+    depends_on: [task-bear-r1]
+    input_from:
+      research_report: task-research
+      opponent_argument: task-bear-r1
+
+  - id: task-bear-r2
+    agent_id: bear_analyst
+    prompt_template: |
+      【第二轮：反驳】
+      看涨方在第一轮中提出了以下论点。请逐一反驳对方的观点，并补充新的风险证据。
+
+      要求：
+      1. 直接回应对方的具体论据，指出其过度乐观或忽略的风险因素
+      2. 用新的数据或角度加强你的看跌论点
+      3. 如果对方的某个论点确实有力，坦诚承认但说明为何整体下行风险仍然较大
+
+      写入 extra_report 时使用 agent_id: "bear_analyst_r2", title: "反驳看涨方论点"。
+    depends_on: [task-bull-r1]
+    input_from:
+      research_report: task-research
+      opponent_argument: task-bull-r1
+
+  # ── 研究经理：综合辩论结论 ──
   - id: task-manager
     agent_id: research_manager
     prompt_template: |
-      综合调研报告和多空辩论，给出 {candidate_names} 的投资结论。
-      权衡多空观点后，给出明确的投资评级。
-    depends_on: [task-bull, task-bear]
+      综合调研报告和两轮多空辩论（立论+反驳），给出 {candidate_names} 的投资结论。
+
+      请特别注意：
+      - 第一轮中多空双方各提出了哪些核心论点
+      - 第二轮中双方是否成功反驳了对方，哪些论点未被有效回应
+      - 最终多空哪方的论据更有说服力
+
+      给出明确的投资评级：强烈推荐 / 推荐 / 中性 / 不推荐。
+    depends_on: [task-bull-r2, task-bear-r2]
     input_from:
       research_report: task-research
-      bull_analysis: task-bull
-      bear_analysis: task-bear
+      bull_r1: task-bull-r1
+      bear_r1: task-bear-r1
+      bull_r2: task-bull-r2
+      bear_r2: task-bear-r2
 
+  # ── 交易员 ──
   - id: task-trader
     agent_id: trader
     prompt_template: |
@@ -339,6 +401,7 @@ tasks:
     input_from:
       manager_conclusion: task-manager
 
+  # ── 三视角风险分析 ──
   - id: task-aggressive
     agent_id: aggressive_analyst
     prompt_template: |
@@ -369,6 +432,7 @@ tasks:
       manager_conclusion: task-manager
       trader_advice: task-trader
 
+  # ── 最终风控决策 ──
   - id: task-risk-manager
     agent_id: risk_manager
     prompt_template: |

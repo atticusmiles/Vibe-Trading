@@ -57,7 +57,11 @@ class ManageCandidatesTool(BaseTool):
             "status": {
                 "type": "string",
                 "enum": ["proposed", "passed"],
-                "description": "New status — only proposed/passed allowed (researching is set by API).",
+                "description": "Set to 'proposed' (requires proposal_id) or 'passed'.",
+            },
+            "proposal_id": {
+                "type": "integer",
+                "description": "Required when status='proposed'. The proposal backing this candidate.",
             },
             "conclusion": {
                 "type": "string",
@@ -171,8 +175,17 @@ class ManageCandidatesTool(BaseTool):
             if status:
                 if status not in _ALLOWED_STATUS:
                     return _err(f"Status '{status}' not allowed. Use: {_ALLOWED_STATUS}")
-                updates.append("status = ?")
-                params.append(status)
+                if status == "proposed":
+                    pid = kwargs.get("proposal_id")
+                    if not pid:
+                        return _err("proposal_id is required when status='proposed'. Call manage_proposals first.")
+                    updates.append("status = ?")
+                    params.append(status)
+                    updates.append("proposal_id = ?")
+                    params.append(pid)
+                else:
+                    updates.append("status = ?")
+                    params.append(status)
 
             if kwargs.get("conclusion"):
                 updates.append("conclusion = ?")

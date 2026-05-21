@@ -6,7 +6,7 @@ import sqlite3
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.db import get_db
 from .base import get_conn, require_jwt, require_real_user, status_filter
@@ -41,6 +41,11 @@ class TrendResponse(BaseModel):
     evidence: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _coerce_confidence(cls, v):
+        return int(v)
 
 
 # ============================================================================

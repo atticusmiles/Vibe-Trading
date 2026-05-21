@@ -6,8 +6,8 @@ import json
 import sqlite3
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from fastapi import Depends, FastAPI, HTTPException, Query, status
+from pydantic import BaseModel, Field, field_validator
 
 from src.db import get_db
 from .base import ALLOWED_FIELDS, get_conn, require_jwt, require_real_user
@@ -86,6 +86,11 @@ class ProposalResponse(BaseModel):
     source_agent: Optional[str] = None
     created_at: Optional[str] = None
     reviewed_at: Optional[str] = None
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _coerce_confidence(cls, v):
+        return int(v)
 
 
 class ProposalListResponse(BaseModel):
@@ -193,9 +198,8 @@ def _evict_if_over_limit(
 # ============================================================================
 
 def register_proposal_routes(app: FastAPI) -> None:
-    router = APIRouter(prefix="/api/proposals", tags=["proposals"])
 
-    @router.post("", response_model=ProposalResponse, status_code=status.HTTP_201_CREATED)
+    @app.post("/api/proposals", response_model=ProposalResponse, status_code=status.HTTP_201_CREATED)
     async def create_proposal(req: ProposalCreate, user_id: int = Depends(require_real_user)):
         target_type = req.target_type
         action = req.action
@@ -256,7 +260,7 @@ def register_proposal_routes(app: FastAPI) -> None:
             row = conn.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
             return dict(row)
 
-    @router.get("", response_model=ProposalListResponse)
+    @app.get("/api/proposals", response_model=ProposalListResponse)
     async def list_proposals(
         type: Optional[str] = Query(None),
         status: Optional[str] = Query(None),
@@ -292,7 +296,7 @@ def register_proposal_routes(app: FastAPI) -> None:
             items=[dict(r) for r in rows], total=total, page=page, per_page=per_page,
         )
 
-    @router.get("/{proposal_id}", response_model=ProposalResponse)
+    @app.get("/api/proposals/{proposal_id}", response_model=ProposalResponse)
     async def get_proposal(proposal_id: int, user_id: int = Depends(require_real_user)):
         with get_db() as conn:
             row = conn.execute(
@@ -303,7 +307,7 @@ def register_proposal_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=404, detail="Proposal not found")
         return dict(row)
 
-    @router.post("/{proposal_id}/adopt", response_model=ProposalResponse)
+    @app.post("/api/proposals/{proposal_id}/adopt")
     async def adopt_proposal(proposal_id: int, user_id: int = Depends(require_real_user)):
         with get_db() as conn:
             row = conn.execute(
@@ -321,7 +325,11 @@ def register_proposal_routes(app: FastAPI) -> None:
             target_id = proposal["target_id"]
 
             if action == "create":
-                _UPDATE[target_type](target_id, user_id, status="adopted", conn=conn)
+                if target_id:
+                    _UPDATE[target_type](target_id, user_id, status="adopted", conn=conn)
+                else:
+                    payload = _sanitize_payload(target_type, json.loads(proposal["payload"]))
+                    _CREATE[target_type](user_id, status="adopted", conn=conn, **payload)
             elif action == "update":
                 payload = _sanitize_payload(target_type, json.loads(proposal["payload"]))
                 if payload:
@@ -344,7 +352,7 @@ def register_proposal_routes(app: FastAPI) -> None:
             updated = conn.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
             return dict(updated)
 
-    @router.post("/{proposal_id}/reject", response_model=ProposalResponse)
+    @app.post("/api/proposals/{proposal_id}/reject", response_model=ProposalResponse)
     async def reject_proposal(proposal_id: int, user_id: int = Depends(require_real_user)):
         with get_db() as conn:
             row = conn.execute(
@@ -377,7 +385,7 @@ def register_proposal_routes(app: FastAPI) -> None:
             updated = conn.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
             return dict(updated)
 
-    @router.post("/{proposal_id}/cancel", response_model=ProposalResponse)
+    @app.post("/api/proposals/{proposal_id}/cancel", response_model=ProposalResponse)
     async def cancel_proposal(proposal_id: int, user_id: int = Depends(require_real_user)):
         with get_db() as conn:
             row = conn.execute(
@@ -409,5 +417,3 @@ def register_proposal_routes(app: FastAPI) -> None:
 
             updated = conn.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
             return dict(updated)
-
-    app.include_router(router)
