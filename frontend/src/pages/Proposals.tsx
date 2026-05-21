@@ -8,7 +8,9 @@ import { EmptyState } from "@/components/fact-tables/EmptyState";
 import { ProposalDetailModal } from "@/components/proposals/ProposalDetailModal";
 import { api, type ProposalItem, type ProposalListResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { FileCheck, PlusCircle, Pencil, ChevronDown, Calendar } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { FileCheck, PlusCircle, Pencil, ChevronDown, Calendar, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -402,40 +404,66 @@ export function Proposals() {
                 </div>
               </div>
             ) : selected ? (
-              <div className="space-y-4">
-                <div className="flex items-start justify-between">
-                  <h2 className="text-base font-semibold">{selected.title}</h2>
-                  <div className="flex gap-1">
+              <div className="space-y-5">
+                {/* Header */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-semibold leading-tight">{selected.title}</h2>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                      <span className={cn("rounded px-1.5 py-0.5 font-medium", ACTION_COLORS[selected.action])}>{ACTION_LABELS[selected.action]}</span>
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">{TYPE_LABELS[selected.target_type]}</span>
+                      <StatusDot status={selected.status} />
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
                     {selected.status === "pending" && (
                       <>
-                        <button onClick={() => handleAdopt(selected.id)} className="rounded-md bg-success/10 px-2 py-1 text-xs font-medium text-success hover:bg-success/20">采纳</button>
-                        <button onClick={() => handleReject(selected.id)} className="rounded-md bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/20">拒绝</button>
+                        <button onClick={() => handleAdopt(selected.id)} className="rounded-md bg-success/10 px-2.5 py-1 text-xs font-medium text-success hover:bg-success/20">采纳</button>
+                        <button onClick={() => handleReject(selected.id)} className="rounded-md bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/20">拒绝</button>
                       </>
                     )}
-                    <button onClick={() => { setDetailProposal(selected); setDetailOpen(true); }} className="rounded-md border p-1.5 text-muted-foreground hover:bg-muted">
-                      <Pencil className="h-3.5 w-3.5" />
+                    <button onClick={() => setSelectedId(null)} className="rounded-md border p-1.5 text-muted-foreground hover:bg-muted">
+                      <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex flex-wrap gap-2 text-xs">
-                    <span className={cn("rounded px-1.5 py-0.5 font-medium", ACTION_COLORS[selected.action])}>{ACTION_LABELS[selected.action]}</span>
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">{TYPE_LABELS[selected.target_type]}</span>
-                    <StatusDot status={selected.status} />
+
+                {/* Confidence & Meta */}
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <span>置信度</span>
+                    <ConfidenceDot value={selected.confidence} />
+                    <span>{selected.confidence}/10</span>
                   </div>
-                  <div><span className="text-xs font-medium text-muted-foreground">置信度：</span> <ConfidenceDot value={selected.confidence} /></div>
-                  {selected.target_id > 0 && <div><span className="text-xs font-medium text-muted-foreground">目标 ID：</span> {selected.target_id}</div>}
-                  {selected.source_agent && <div><span className="text-xs font-medium text-muted-foreground">来源：</span> {selected.source_agent}</div>}
+                  {selected.target_id > 0 && <span>目标 #{selected.target_id}</span>}
+                  {selected.source_agent && <span>来源：{selected.source_agent}</span>}
                 </div>
-                {selected.payload && (
-                  <div className="border-t pt-3">
-                    <p className="mb-1 text-xs font-medium text-muted-foreground">Payload</p>
-                    <pre className="overflow-auto rounded bg-muted/50 p-2 text-xs">{(() => { try { return JSON.stringify(JSON.parse(selected.payload), null, 2); } catch { return selected.payload; } })()}</pre>
+
+                {/* Summary */}
+                {selected.summary && (
+                  <div className="rounded-lg border p-3 min-w-0">
+                    <p className="mb-1.5 text-xs font-semibold text-muted-foreground">摘要</p>
+                    <div className="prose prose-sm dark:prose-invert max-w-none text-sm break-words">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{selected.summary}</ReactMarkdown>
+                    </div>
                   </div>
                 )}
+
+                {/* Payload */}
+                {selected.payload && (
+                  <div className="rounded-lg border p-3 min-w-0">
+                    <p className="mb-1.5 text-xs font-semibold text-muted-foreground">数据载荷</p>
+                    <pre className="max-h-60 overflow-auto overflow-x-hidden whitespace-pre-wrap break-all rounded bg-muted/50 p-2.5 text-xs leading-relaxed">{(() => { try { return JSON.stringify(JSON.parse(selected.payload), null, 2); } catch { return selected.payload; } })()}</pre>
+                  </div>
+                )}
+
+                {/* Metadata */}
                 <div className="border-t pt-3 text-xs text-muted-foreground">
-                  <p>创建时间：{selected.created_at || "—"}</p>
-                  {selected.reviewed_at && <p>审批时间：{selected.reviewed_at}</p>}
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                    <span>创建：{selected.created_at?.slice(0, 19).replace("T", " ") || "—"}</span>
+                    {selected.reviewed_at && <span>审批：{selected.reviewed_at?.slice(0, 19).replace("T", " ")}</span>}
+                    {selected.run_id && <span>来源 Run：<code className="text-[10px]">{selected.run_id.slice(0, 20)}...</code></span>}
+                  </div>
                 </div>
               </div>
             ) : null}

@@ -43,7 +43,7 @@ export function ProposalDetailModal({ open, onClose, proposal, factItem, onAdopt
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div
-        className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-lg border bg-card p-5 shadow-lg"
+        className="max-h-[80vh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-lg border bg-card p-5 shadow-lg break-words"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">
@@ -65,9 +65,9 @@ export function ProposalDetailModal({ open, onClose, proposal, factItem, onAdopt
           {proposal.source_agent && <p className="text-xs text-muted-foreground">来源：{proposal.source_agent}</p>}
           {proposal.run_id && <p className="text-xs text-muted-foreground">运行：{proposal.run_id}</p>}
           {proposal.summary && (
-            <div className="mt-2">
+            <div className="mt-2 min-w-0">
               <p className="text-xs font-medium text-muted-foreground">变更摘要：</p>
-              <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{proposal.summary}</p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{proposal.summary}</p>
             </div>
           )}
         </div>
@@ -76,22 +76,22 @@ export function ProposalDetailModal({ open, onClose, proposal, factItem, onAdopt
         {!isDelete && allKeys.length > 0 && (
           <div className="mt-4 border-t pt-3">
             {isUpdate ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-2 gap-3 min-w-0">
+                <div className="min-w-0">
                   <p className="mb-1 text-xs font-medium text-muted-foreground">当前值</p>
                   {allKeys.map((k) => (
-                    <div key={k} className="flex justify-between border-b py-1 text-xs">
-                      <span className="text-muted-foreground">{FIELD_LABELS[k] || k}</span>
-                      <span>{String(original[k] ?? "—")}</span>
+                    <div key={k} className="flex justify-between gap-2 border-b py-1 text-xs">
+                      <span className="text-muted-foreground shrink-0">{FIELD_LABELS[k] || k}</span>
+                      <span className="break-all text-right min-w-0">{String(original[k] ?? "—")}</span>
                     </div>
                   ))}
                 </div>
                 <div>
                   <p className="mb-1 text-xs font-medium text-muted-foreground">提议值</p>
                   {allKeys.map((k) => (
-                    <div key={k} className="flex justify-between border-b py-1 text-xs">
-                      <span className="text-muted-foreground">{FIELD_LABELS[k] || k}</span>
-                      <span className="font-medium">{String(payload[k] ?? "—")}</span>
+                    <div key={k} className="flex justify-between gap-2 border-b py-1 text-xs">
+                      <span className="text-muted-foreground shrink-0">{FIELD_LABELS[k] || k}</span>
+                      <span className="font-medium break-all text-right min-w-0">{String(payload[k] ?? "—")}</span>
                     </div>
                   ))}
                 </div>

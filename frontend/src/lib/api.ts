@@ -205,6 +205,25 @@ export const api = {
     request<NewsDigestItem>("/api/news/digests/trigger" + (target_date ? `?target_date=${target_date}` : ""), { method: "POST" }),
   listRecentNews: (params?: { limit?: number }) =>
     request<NewsItem[]>("/api/news/recent" + (params?.limit ? `?limit=${params.limit}` : "")),
+
+  // Candidates
+  listCandidates: (params?: { target_type?: string; candidate_status?: string; page?: number; per_page?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.target_type) qs.set("target_type", params.target_type);
+    if (params?.candidate_status) qs.set("candidate_status", params.candidate_status);
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.per_page) qs.set("per_page", String(params.per_page));
+    const query = qs.toString();
+    return request<CandidateListResponse>(`/api/research/candidates${query ? `?${query}` : ""}`);
+  },
+  getCandidate: (id: number) => request<CandidateResponse>(`/api/research/candidates/${id}`),
+  batchResearch: (candidate_ids: number[], max_concurrent = 2) =>
+    request<BatchResearchResponse>("/api/research/candidates/batch-research", {
+      method: "POST",
+      body: JSON.stringify({ candidate_ids, max_concurrent }),
+    }),
+  triggerScan: (target_type: "trends" | "industries" | "stocks") =>
+    request<{ status: string; run_id: string }>(`/api/research/scan/${target_type}`, { method: "POST" }),
 };
 
 // --- Swarm types ---
@@ -494,4 +513,39 @@ export interface NewsItem {
   level: string | null;
   source: string;
   published_at: string;
+}
+
+// --- Candidate types ---
+
+export interface CandidateResponse {
+  id: number;
+  target_type: "trend" | "industry" | "stock";
+  name: string;
+  code: string | null;
+  source_context: string | null;
+  initial_score: number;
+  status: string;
+  source_run_id: string | null;
+  research_run_id: string | null;
+  report: string | null;
+  report_type: string | null;
+  reported_at: string | null;
+  extra_reports: string;
+  conclusion: string | null;
+  proposal_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CandidateListResponse {
+  items: CandidateResponse[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface BatchResearchResponse {
+  triggered: number;
+  run_ids: string[];
+  errors: string[];
 }

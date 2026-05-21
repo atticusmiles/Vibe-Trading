@@ -3,11 +3,14 @@ import { SearchInput } from "@/components/fact-tables/SearchInput";
 import { StatusDot } from "@/components/fact-tables/StatusDot";
 import { ConfidenceDot } from "@/components/fact-tables/ConfidenceDot";
 import { CompactList } from "@/components/fact-tables/CompactList";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { DetailPanel } from "@/components/fact-tables/DetailPanel";
 import { EmptyState } from "@/components/fact-tables/EmptyState";
 import { useDeleteWithUndo } from "@/components/fact-tables/DeleteWithUndo";
 import { ProposalBanner } from "@/components/proposals/ProposalBanner";
 import { ProposalDetailModal } from "@/components/proposals/ProposalDetailModal";
+import { CandidatesTab } from "@/components/CandidatesTab";
 import { api, type TrendItem, type ProposalItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { PlusCircle, Trash2, TrendingUp, Pencil, ChevronDown, AlertTriangle } from "lucide-react";
@@ -27,6 +30,7 @@ const LEVEL_ORDER: Record<string, number> = { "long-term": 0, "mid-term": 1, "sh
 const inputCls = "w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary";
 
 type Mode = "view" | "add" | "edit";
+type Tab = "entities" | "candidates";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "";
@@ -42,6 +46,7 @@ export function Trends() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [mode, setMode] = useState<Mode>("view");
+  const [tab, setTab] = useState<Tab>("entities");
 
   // Proposals state
   const [pendingProposals, setPendingProposals] = useState<ProposalItem[]>([]);
@@ -180,11 +185,23 @@ export function Trends() {
   return (
     <div className="flex h-full flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">趋势</h1>
-        <button onClick={startAdd} className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">
-          <PlusCircle className="h-3.5 w-3.5" /> 添加
-        </button>
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-semibold">趋势</h1>
+          <div className="flex gap-1">
+            <button onClick={() => setTab("entities")} className={cn("rounded-md px-3 py-1 text-xs font-medium transition-colors", tab === "entities" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>趋势</button>
+            <button onClick={() => setTab("candidates")} className={cn("rounded-md px-3 py-1 text-xs font-medium transition-colors", tab === "candidates" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>候选</button>
+          </div>
+        </div>
+        {tab === "entities" && (
+          <button onClick={startAdd} className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">
+            <PlusCircle className="h-3.5 w-3.5" /> 添加
+          </button>
+        )}
       </div>
+
+      {tab === "candidates" ? (
+        <CandidatesTab targetType="trend" />
+      ) : (
 
       <MasterDetailLayout
         master={
@@ -305,7 +322,7 @@ export function Trends() {
                 <div className="space-y-2 text-sm">
                   {selected.level && <div><span className="text-xs font-medium text-muted-foreground">级别：</span> <span className={cn("ml-2 rounded px-1.5 py-0.5 text-xs font-medium", LEVEL_COLORS[selected.level])}>{LEVEL_LABELS[selected.level] || selected.level}</span></div>}
                   <div><span className="text-xs font-medium text-muted-foreground">置信度：</span> <ConfidenceDot value={selected.confidence} /></div>
-                  {selected.evidence && <div><span className="text-xs font-medium text-muted-foreground">证据：</span><p className="mt-1 whitespace-pre-wrap text-muted-foreground">{selected.evidence}</p></div>}
+                  {selected.evidence && <div><span className="text-xs font-medium text-muted-foreground">证据：</span><div className="mt-1 prose prose-sm dark:prose-invert max-w-none text-sm"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selected.evidence}</ReactMarkdown></div></div>}
                 </div>
                 <div className="border-t pt-3 text-xs text-muted-foreground">
                   <p>状态：{STATUS_LABELS[selected.status] || selected.status}</p>
@@ -317,6 +334,7 @@ export function Trends() {
           </DetailPanel>
         }
       />
+      )}
 
       <ProposalDetailModal
         open={detailOpen}

@@ -136,6 +136,7 @@ const messages = {
   undo: "撤销", saved: "已保存",
   // Proposals
   proposals: "提案", pendingApproval: "待审批",
+  candidates: "投研候选",
   adopt: "采纳", rejectBtn: "拒绝", cancelBtn: "取消",
   proposalCreated: "提案已创建", proposalAdopted: "提案已采纳",
   proposalRejected: "提案已拒绝", proposalCancelled: "提案已取消",
