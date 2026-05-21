@@ -210,7 +210,7 @@ export const api = {
   listCandidates: (params?: { target_type?: string; candidate_status?: string; page?: number; per_page?: number }) => {
     const qs = new URLSearchParams();
     if (params?.target_type) qs.set("target_type", params.target_type);
-    if (params?.candidate_status) qs.set("candidate_status", params.candidate_status);
+    if (params?.candidate_status) qs.set("status", params.candidate_status);
     if (params?.page) qs.set("page", String(params.page));
     if (params?.per_page) qs.set("per_page", String(params.per_page));
     const query = qs.toString();
@@ -545,7 +545,7 @@ export interface CandidateListResponse {
 }
 
 export interface BatchResearchResponse {
-  triggered: number;
-  run_ids: string[];
-  errors: string[];
+  runs: Array<{ run_id: string; candidate_id: number; candidate_name: string; status: string; error?: string }>;
+  total: number;
+  skipped: number;
 }

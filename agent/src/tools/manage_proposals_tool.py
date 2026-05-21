@@ -183,13 +183,6 @@ class ManageProposalsTool(BaseTool):
             ensure_ascii=False,
         )
 
-        return json.dumps(
-            {"status": "ok", "action": "create", "proposal_id": proposal_id,
-             "target_type": target_type, "proposal_action": proposal_action,
-             "title": title},
-            ensure_ascii=False,
-        )
-
     def _cancel(self, kwargs: dict[str, Any]) -> str:
         proposal_id = kwargs.get("proposal_id")
         if not proposal_id:

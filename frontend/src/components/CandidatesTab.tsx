@@ -165,7 +165,7 @@ export function CandidatesTab({ targetType }: { targetType: "trend" | "industry"
     setResearching(true);
     try {
       const result = await api.batchResearch(ids);
-      toast.success(`已触发 ${result.triggered} 个研究任务`);
+      toast.success(`已触发 ${result.total} 个研究任务${result.skipped > 0 ? `，${result.skipped} 个跳过` : ""}`);
       setSelectedIds(new Set());
       fetchCandidates();
     } catch {

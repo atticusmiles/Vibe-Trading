@@ -146,7 +146,7 @@ export function Proposals() {
       case "industry":
         return JSON.stringify({ name: fName.trim(), reason: fReason.trim() });
       case "stock":
-        return JSON.stringify({ code: fCode.trim(), name: fCode.trim(), industry_name: fIndustryName.trim(), advice: fAdvice.trim() });
+        return JSON.stringify({ name: fName.trim(), code: fCode.trim(), industry_name: fIndustryName.trim(), advice: fAdvice.trim() });
     }
   };
 
@@ -154,14 +154,14 @@ export function Proposals() {
     switch (formType) {
       case "trend": return fTitle.trim();
       case "industry": return fName.trim();
-      case "stock": return fCode.trim();
+      case "stock": return fName.trim() || fCode.trim();
     }
   };
 
   const handleSubmit = async () => {
     const title = getDisplayTitle();
     if (formAction !== "delete" && !title) {
-      toast.error(formType === "trend" ? "标题不能为空" : formType === "industry" ? "名称不能为空" : "代码不能为空");
+      toast.error(formType === "trend" ? "标题不能为空" : formType === "industry" ? "名称不能为空" : "名称不能为空");
       return;
     }
     setSaving(true);
@@ -377,6 +377,10 @@ export function Proposals() {
                   )}
                   {formAction !== "delete" && formType === "stock" && (
                     <>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">名称 *</label>
+                        <input value={fName} onChange={(e) => setFName(e.target.value)} className={inputCls} placeholder="例如：贵州茅台" />
+                      </div>
                       <div>
                         <label className="mb-1 block text-xs font-medium text-muted-foreground">代码 *</label>
                         <input value={fCode} onChange={(e) => setFCode(e.target.value)} className={inputCls} placeholder="例如：600519" />
