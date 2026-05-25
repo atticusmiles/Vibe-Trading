@@ -103,7 +103,7 @@ _dotenv_loaded: bool = False
 def _load_env_file(path: Path) -> None:
     """Load a single .env file into os.environ (setdefault, no override)."""
     if load_dotenv is not None:
-        load_dotenv(dotenv_path=path, override=False)
+        load_dotenv(dotenv_path=path, override=True)
     else:
         for raw in path.read_text(encoding="utf-8").splitlines():
             line = raw.strip()
@@ -112,7 +112,7 @@ def _load_env_file(path: Path) -> None:
             key, value = line.split("=", 1)
             key = key.strip()
             if key:
-                os.environ.setdefault(key, value.strip().strip('"').strip("'"))
+                os.environ[key] = value.strip().strip('"').strip("'")
 
 
 def _ensure_dotenv() -> None:

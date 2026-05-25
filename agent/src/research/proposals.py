@@ -329,6 +329,30 @@ def register_proposal_routes(app: FastAPI) -> None:
                     _UPDATE[target_type](target_id, user_id, status="adopted", conn=conn)
                 else:
                     payload = _sanitize_payload(target_type, json.loads(proposal["payload"]))
+                    # Fallback: if LLM proposal payload is missing the required name field,
+                    # pull it from the candidate that spawned this proposal.
+                    if "name" not in payload and target_type == "industry":
+                        cand = conn.execute(
+                            "SELECT name FROM research_candidates WHERE proposal_id = ?",
+                            (proposal_id,),
+                        ).fetchone()
+                        if cand:
+                            payload["name"] = cand["name"]
+                    elif "title" not in payload and target_type == "trend":
+                        cand = conn.execute(
+                            "SELECT name FROM research_candidates WHERE proposal_id = ?",
+                            (proposal_id,),
+                        ).fetchone()
+                        if cand:
+                            payload["title"] = cand["name"]
+                    elif "name" not in payload and target_type == "stock":
+                        cand = conn.execute(
+                            "SELECT name, code FROM research_candidates WHERE proposal_id = ?",
+                            (proposal_id,),
+                        ).fetchone()
+                        if cand:
+                            payload["name"] = cand["name"]
+                            payload.setdefault("code", cand["code"] or "")
                     _CREATE[target_type](user_id, status="adopted", conn=conn, **payload)
             elif action == "update":
                 payload = _sanitize_payload(target_type, json.loads(proposal["payload"]))

@@ -42,24 +42,30 @@ async def fallback(
     fallback_fn: Callable[[], Any] | None = None,
     *,
     label: str = "",
+    timeout: float = 10,
 ) -> Any:
-    """Try *primary_fn*; on failure try *fallback_fn*.
+    """Try *primary_fn* (with *timeout*); on failure try *fallback_fn*.
 
     Returns the result of whichever succeeds.  Raises ``NoDataAvailableError``
     when both fail (or when no fallback is provided).
     """
     try:
-        return await primary_fn()
+        return await asyncio.wait_for(primary_fn(), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning("%s: primary timed out (%.0fs)", label, timeout)
     except Exception as exc:
-        if not fallback_fn:
-            raise NoDataAvailableError(f"{label}: primary source failed — {exc}") from exc
         logger.warning("%s: primary failed (%s), trying fallback", label, exc)
-        try:
-            return await fallback_fn()
-        except Exception as fb_exc:
-            raise NoDataAvailableError(
-                f"{label}: primary ({exc}) and fallback ({fb_exc}) both failed"
-            ) from fb_exc
+
+    if not fallback_fn:
+        raise NoDataAvailableError(f"{label}: primary failed after {timeout}s")
+    try:
+        return await asyncio.wait_for(fallback_fn(), timeout=timeout)
+    except asyncio.TimeoutError:
+        raise NoDataAvailableError(f"{label}: both primary and fallback timed out ({timeout}s)")
+    except Exception as fb_exc:
+        raise NoDataAvailableError(
+            f"{label}: primary and fallback both failed ({fb_exc})"
+        ) from fb_exc
 
 
 # ---------------------------------------------------------------------------

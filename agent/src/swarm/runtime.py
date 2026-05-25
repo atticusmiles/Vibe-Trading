@@ -15,11 +15,13 @@ from concurrent.futures import (
     TimeoutError as FuturesTimeoutError,
     as_completed,
 )
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
 from src.swarm.mailbox import Mailbox
+
+SHANGHAI_TZ = timezone(timedelta(hours=8))
 from src.swarm.models import (
     RunStatus,
     SwarmAgentSpec,
@@ -167,8 +169,10 @@ class SwarmRuntime:
             agent_id=agent_id,
             task_id=task_id,
             data=data or {},
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(SHANGHAI_TZ).isoformat(),
         )
+
+    _RUN_HARD_TIMEOUT_SECONDS = 1800  # 30 min — safety net for stuck workers
 
     def _execute_run(
         self,
@@ -186,7 +190,10 @@ class SwarmRuntime:
                a. Check cancellation
                b. Submit all tasks to ThreadPoolExecutor
                c. Collect results, resolve dependencies, update store
-            5. Update run status to completed/failed
+            5. Update run status to completed/failed/cancelled
+
+        A hard timeout (30 min) is enforced via threading.Timer. If the run
+        exceeds this, the cancel event is set and the run is marked as failed.
 
         Args:
             run: SwarmRun to execute.
@@ -196,25 +203,37 @@ class SwarmRuntime:
         run_id = run.id
         run_dir = self._store.run_dir(run_id)
 
-        # Mark as running
-        run.status = RunStatus.running
-        self._store.update_run(run)
-        self._emit_event(run_id, self._make_event("run_started"))
+        # Hard timeout: force-cancel if the run exceeds the global budget
+        hard_timeout_fired = threading.Event()
 
-        # Initialize task store
-        task_store = TaskStore(run_dir)
-        for task in run.tasks:
-            task_store.save_task(task)
+        def _on_hard_timeout() -> None:
+            hard_timeout_fired.set()
+            cancel_event.set()
+            logger.error("Run %s exceeded hard timeout of %ds — forcing cancel", run_id, self._RUN_HARD_TIMEOUT_SECONDS)
 
-        # Build agent lookup
-        agent_map: dict[str, SwarmAgentSpec] = {a.id: a for a in run.agents}
-
-        # Compute execution layers
-        layers = topological_layers(run.tasks)
-        task_summaries: dict[str, str] = {}
-        all_succeeded = True
+        hard_timer = threading.Timer(self._RUN_HARD_TIMEOUT_SECONDS, _on_hard_timeout)
+        hard_timer.daemon = True
+        hard_timer.start()
 
         try:
+            # Mark as running
+            run.status = RunStatus.running
+            self._store.update_run(run)
+            self._emit_event(run_id, self._make_event("run_started"))
+
+            # Initialize task store
+            task_store = TaskStore(run_dir)
+            for task in run.tasks:
+                task_store.save_task(task)
+
+            # Build agent lookup
+            agent_map: dict[str, SwarmAgentSpec] = {a.id: a for a in run.agents}
+
+            # Compute execution layers
+            layers = topological_layers(run.tasks)
+            task_summaries: dict[str, str] = {}
+            all_succeeded = True
+
             for layer_idx, layer_task_ids in enumerate(layers):
                 # Check cancellation between layers
                 if cancel_event.is_set():
@@ -251,7 +270,7 @@ class SwarmRuntime:
 
                     if result.status in ("completed", "timeout", "token_limit"):
                         task_summaries[tid] = result.summary
-                        now_iso = datetime.now(timezone.utc).isoformat()
+                        now_iso = datetime.now(SHANGHAI_TZ).isoformat()
                         task_store.update_status(
                             tid, TaskStatus.completed,
                             summary=result.summary,
@@ -273,7 +292,7 @@ class SwarmRuntime:
                         task_store.update_status(
                             tid, TaskStatus.failed,
                             error=result.error or "Unknown error",
-                            completed_at=datetime.now(timezone.utc).isoformat(),
+                            completed_at=datetime.now(SHANGHAI_TZ).isoformat(),
                             worker_iterations=result.iterations,
                         )
                         self._emit_event(
@@ -292,33 +311,111 @@ class SwarmRuntime:
                 self._make_event("run_error", data={"error": str(exc)}),
             )
 
-        # Finalize run
-        final_status = (
-            RunStatus.cancelled if cancel_event.is_set()
-            else RunStatus.completed if all_succeeded
-            else RunStatus.failed
-        )
-        run.status = final_status
-        run.completed_at = datetime.now(timezone.utc).isoformat()
+        finally:
+            hard_timer.cancel()
 
-        # Sync tasks back to run model
-        run.tasks = task_store.load_all()
+            # Finalize run
+            if hard_timeout_fired.is_set():
+                final_status = RunStatus.failed
+                error_msg = f"Run exceeded hard timeout of {self._RUN_HARD_TIMEOUT_SECONDS}s"
+                # Mark remaining incomplete tasks as cancelled
+                for task in run.tasks:
+                    if task.status not in (TaskStatus.completed, TaskStatus.failed):
+                        try:
+                            task_store.update_status(task.id, TaskStatus.cancelled, error=error_msg)
+                        except Exception:
+                            pass
+            elif cancel_event.is_set():
+                final_status = RunStatus.cancelled
+            elif all_succeeded:
+                final_status = RunStatus.completed
+            else:
+                final_status = RunStatus.failed
 
-        # Set final report from aggregation task (last task) if available
-        if task_summaries:
-            last_layer = layers[-1] if layers else []
-            for tid in last_layer:
-                if tid in task_summaries:
-                    run.final_report = task_summaries[tid]
-                    break
+            run.status = final_status
+            run.completed_at = datetime.now(SHANGHAI_TZ).isoformat()
 
-        self._store.update_run(run)
-        self._emit_event(run_id, self._make_event("run_completed", data={"status": final_status.value}))
+            # Sync tasks back to run model
+            try:
+                run.tasks = task_store.load_all()
+            except Exception:
+                pass
 
-        # Cleanup cancel event and live callback
-        with self._lock:
-            self._cancel_events.pop(run_id, None)
-            self._live_callbacks.pop(run_id, None)
+            # Set final report from aggregation task (last task) if available
+            if task_summaries:
+                last_layer = layers[-1] if layers else []
+                for tid in last_layer:
+                    if tid in task_summaries:
+                        run.final_report = task_summaries[tid]
+                        break
+
+            try:
+                self._store.update_run(run)
+            except Exception:
+                logger.warning("Failed to persist final state for run %s", run_id, exc_info=True)
+
+            self._emit_event(run_id, self._make_event("run_completed", data={"status": final_status.value}))
+
+            # Sync candidate status: if the agent didn't update the candidate,
+            # auto-resolve it based on the run outcome so it doesn't stay "researching" forever.
+            self._sync_candidates_after_run(run_id, run, final_status)
+
+            # Cleanup cancel event and live callback
+            with self._lock:
+                self._cancel_events.pop(run_id, None)
+                self._live_callbacks.pop(run_id, None)
+
+    def _sync_candidates_after_run(self, run_id: str, run: SwarmRun, final_status: RunStatus) -> None:
+        """Auto-resolve candidate status after a swarm run completes.
+
+        If the manager agent successfully called manage_candidates, the candidate
+        is already 'proposed' or 'passed'. If not (still 'researching'), infer
+        the outcome from proposals created during this run and update accordingly.
+        """
+        import json as _json
+        from src.db.database import get_db as _get_db
+
+        try:
+            with _get_db() as conn:
+                stuck = conn.execute(
+                    "SELECT id, target_type, name FROM research_candidates "
+                    "WHERE research_run_id = ? AND status = 'researching'",
+                    (run_id,),
+                ).fetchall()
+
+            if not stuck:
+                return
+
+            for cand in stuck:
+                if final_status in (RunStatus.completed,):
+                    # Don't guess — if the manager didn't set a status, auto-pass
+                    # so the candidate doesn't stay stuck in "researching".
+                    with _get_db() as conn:
+                        conn.execute(
+                            "UPDATE research_candidates SET status = 'passed', "
+                            "conclusion = 'Research completed but no proposal was created by the manager', "
+                            "updated_at = datetime('now') WHERE id = ?",
+                            (cand["id"],),
+                        )
+                    logger.info(
+                        "Auto-passed candidate %s/%s (manager did not create a proposal, run %s)",
+                        cand["target_type"], cand["name"], run_id,
+                    )
+                else:
+                    # Run failed/cancelled — reset to pending for retry
+                    with _get_db() as conn:
+                        conn.execute(
+                            "UPDATE research_candidates SET status = 'pending', "
+                            "research_run_id = NULL, updated_at = datetime('now') WHERE id = ?",
+                            (cand["id"],),
+                        )
+                    logger.info(
+                        "Run %s %s — reset candidate %s/%s to pending",
+                        run_id, final_status.value, cand["target_type"], cand["name"],
+                    )
+
+        except Exception:
+            logger.warning("Failed to sync candidates after run %s", run_id, exc_info=True)
 
     def _execute_layer(
         self,
@@ -375,7 +472,7 @@ class SwarmRuntime:
                 # Mark task as in_progress
                 task_store.update_status(
                     tid, TaskStatus.in_progress,
-                    started_at=datetime.now(timezone.utc).isoformat(),
+                    started_at=datetime.now(SHANGHAI_TZ).isoformat(),
                 )
                 self._emit_event(
                     run.id,

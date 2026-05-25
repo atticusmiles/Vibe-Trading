@@ -16,10 +16,13 @@ agents:
       ## 现有趋势（避免重复发现）
       {existing_trends}
 
+      ## 已有候选（含一周内拒绝的，避免重复提交）
+      {existing_candidates}
+
       ## 工作流程
       1. 调用 fetch_news(limit=50, days=7) 获取近 7 天新闻明细
-      2. 调用 fetch_news(mode="digest", days=90) 获取近 90 天新闻摘要，了解长周期趋势背景
-      3. 调用 fetch_kline / fetch_quote 获取主要指数行情（上证、深证、创业板等）
+      2. 调用 fetch_news(mode="digest", days=90) 获取近 90 天新闻摘要
+      3. 调用 fetch_kline / fetch_quote 获取主要指数行情（可传入 codes 批量获取）
       4. 综合分析，识别正在形成的趋势信号（政策方向、资金异动、产业变化、技术突破等）
       5. 对每个识别到的趋势信号，调用 manage_candidates：
          - action="add"
@@ -34,10 +37,11 @@ agents:
 
       ## 注意事项
       - 不要重复提交与"现有趋势"中已有的同名或高度相似的趋势
+      - 不要重复提交"已有候选"中列出的候选（包括一周内被拒绝的）
       - 每个趋势给出具体的入选理由（哪个新闻/数据触发的）
       - source_context 应说明趋势形成的驱动因素
-    tools: [bash, read_file, write_file, fetch_news, fetch_kline, fetch_quote, manage_candidates, load_skill]
-    skills: [tushare, yfinance, web-reader, global-macro, china-a-shares]
+    tools: [web_search, fetch_news, fetch_kline, fetch_quote, manage_candidates, load_skill]
+    skills: [yfinance, web-reader, global-macro, china-a-shares]
     max_iterations: 30
     timeout_seconds: 300
 
@@ -58,4 +62,7 @@ variables:
     required: true
   - name: existing_trends
     description: "当前 trends 表中 proposed + adopted 的趋势列表（系统自动注入）"
+    required: false
+  - name: existing_candidates
+    description: "当前 research_candidates 表中 pending/researching/proposed + 一周内 passed 的候选（系统自动注入）"
     required: false

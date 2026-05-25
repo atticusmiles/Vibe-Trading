@@ -31,7 +31,7 @@ class CandidateResponse(BaseModel):
     name: str
     code: Optional[str] = None
     source_context: Optional[str] = None
-    initial_score: int = 0
+    initial_score: float = 0
     status: str = "pending"
     source_run_id: Optional[str] = None
     research_run_id: Optional[str] = None
@@ -131,9 +131,10 @@ def register_candidates_routes(app: FastAPI) -> None:
             raise HTTPException(400, "All candidates must have the same target_type")
 
         target_type = target_types.pop()
-        pending_rows = [r for r in rows if r["status"] == "pending"]
-        if not pending_rows:
-            raise HTTPException(400, "No pending candidates to research")
+        # Allow re-research: any status except currently researching
+        researchable = [r for r in rows if r["status"] != "researching"]
+        if not researchable:
+            raise HTTPException(400, "All candidates are already being researched")
 
         preset_name = _PRESET_MAP.get(target_type)
         if not preset_name:
@@ -144,6 +145,7 @@ def register_candidates_routes(app: FastAPI) -> None:
         from src.swarm.store import SwarmStore
         from src.core.config import get_swarm_dir
         from src.swarm.presets import load_preset
+        from src.scheduler import _build_existing_proposals
 
         swarm_dir = get_swarm_dir()
         store = SwarmStore(base_dir=swarm_dir)
@@ -156,23 +158,9 @@ def register_candidates_routes(app: FastAPI) -> None:
             raise HTTPException(500, f"Preset {preset_name} not found")
 
         runs = []
-        skipped = len(rows) - len(pending_rows)
+        skipped = len(rows) - len(researchable)
 
-        for row in pending_rows:
-            run_id = str(uuid.uuid4())
-
-            # Atomically mark as researching
-            with get_db() as conn:
-                updated = conn.execute(
-                    "UPDATE research_candidates SET status = 'researching', "
-                    "research_run_id = ?, updated_at = datetime('now') "
-                    "WHERE id = ? AND status = 'pending'",
-                    (run_id, row["id"]),
-                ).rowcount
-                if not updated:
-                    skipped += 1
-                    continue
-
+        for row in researchable:
             # Build user_vars for this candidate
             candidate_info = json.dumps({
                 "name": row["name"],
@@ -184,12 +172,30 @@ def register_candidates_routes(app: FastAPI) -> None:
             user_vars = {
                 "candidate_names": json.dumps([row["name"]], ensure_ascii=False),
                 "candidate_info": candidate_info,
-                "_run_id": run_id,
+                "existing_proposals": _build_existing_proposals(target_type),
                 "_user_id": str(user_id),
             }
 
+            with get_db() as conn:
+                updated = conn.execute(
+                    "UPDATE research_candidates SET status = 'researching', "
+                    "updated_at = datetime('now') "
+                    "WHERE id = ? AND status != 'researching'",
+                    (row["id"],),
+                ).rowcount
+                if not updated:
+                    skipped += 1
+                    continue
+
             try:
                 run = runtime.start_run(preset_name, user_vars)
+                # Write the actual swarm run ID so frontend can connect to the event stream
+                with get_db() as conn:
+                    conn.execute(
+                        "UPDATE research_candidates SET research_run_id = ? "
+                        "WHERE id = ?",
+                        (run.id, row["id"]),
+                    )
                 runs.append({
                     "run_id": run.id,
                     "candidate_id": row["id"],

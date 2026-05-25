@@ -6,6 +6,7 @@ Provides DAG algorithms: dependency resolution, cycle detection, and topological
 
 from __future__ import annotations
 
+import time
 import threading
 from collections import defaultdict, deque
 from pathlib import Path
@@ -44,6 +45,19 @@ class TaskStore:
         """
         return self._tasks_dir / f"task-{task_id}.json"
 
+    def _atomic_write(self, path: Path, content: str) -> None:
+        """Write to .tmp then rename, with retry on Windows lock contention."""
+        tmp_path = path.with_suffix(".tmp")
+        tmp_path.write_text(content, encoding="utf-8")
+        for attempt in range(5):
+            try:
+                tmp_path.replace(path)
+                return
+            except OSError:
+                if attempt >= 4:
+                    raise
+                time.sleep(0.1 * (2 ** attempt))
+
     def save_task(self, task: SwarmTask) -> None:
         """Save or overwrite task state.
 
@@ -51,10 +65,8 @@ class TaskStore:
             task: SwarmTask instance.
         """
         path = self._task_path(task.id)
-        tmp_path = path.with_suffix(".tmp")
         with self._lock:
-            tmp_path.write_text(task.model_dump_json(indent=2), encoding="utf-8")
-            tmp_path.replace(path)
+            self._atomic_write(path, task.model_dump_json(indent=2))
 
     def load_task(self, task_id: str) -> SwarmTask:
         """Load a task by ID.
@@ -140,11 +152,23 @@ def resolve_dependencies(tasks_dir: Path, completed_task_id: str) -> list[str]:
             newly_unblocked.append(task.id)
 
         updated_task = SwarmTask.model_validate(updated_data)
-        tmp_path = path.with_suffix(".tmp")
-        tmp_path.write_text(updated_task.model_dump_json(indent=2), encoding="utf-8")
-        tmp_path.replace(path)
+        _atomic_write_file(path, updated_task.model_dump_json(indent=2))
 
     return newly_unblocked
+
+
+def _atomic_write_file(path: Path, content: str) -> None:
+    """Write to .tmp then rename, with retry on Windows lock contention."""
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(content, encoding="utf-8")
+    for attempt in range(5):
+        try:
+            tmp_path.replace(path)
+            return
+        except OSError:
+            if attempt >= 4:
+                raise
+            time.sleep(0.1 * (2 ** attempt))
 
 
 def validate_dag(tasks: list[SwarmTask]) -> None:

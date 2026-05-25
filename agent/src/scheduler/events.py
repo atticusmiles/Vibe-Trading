@@ -39,26 +39,29 @@ def check_event_triggers(target_type: str, candidate_name: str) -> list[str]:
 
 def _trigger_scan_industries(trigger_trend: str) -> str | None:
     """Trigger scan_industries when a trend becomes proposed."""
-    from . import _run_preset, _build_trend_context, _build_existing_list
+    from . import _run_preset, _build_trend_context, _build_existing_list, _build_existing_candidates
 
     trend_ctx = _build_trend_context()
     existing = _build_existing_list("industry")
+    candidates = _build_existing_candidates("industry")
 
     logger.info("Event trigger: trend '%s' proposed → starting scan_industries", trigger_trend)
     return _run_preset("scan_industries", {
         "trend_context": trend_ctx,
         "existing_industries": existing,
         "existing_trends": _build_existing_list("trend"),
+        "existing_candidates": candidates,
     })
 
 
 def _trigger_scan_stocks(trigger_industry: str) -> str | None:
     """Trigger scan_stocks when an industry becomes proposed."""
-    from . import _run_preset, _build_industry_details, _build_existing_list, _build_current_portfolio
+    from . import _run_preset, _build_industry_details, _build_existing_list, _build_current_portfolio, _build_existing_candidates
 
     details = _build_industry_details()
     existing = _build_existing_list("stock")
     portfolio = _build_current_portfolio()
+    candidates = _build_existing_candidates("stock")
 
     logger.info("Event trigger: industry '%s' proposed → starting scan_stocks", trigger_industry)
     return _run_preset("scan_stocks", {
@@ -66,4 +69,5 @@ def _trigger_scan_stocks(trigger_industry: str) -> str | None:
         "industry_details": details,
         "existing_stocks": existing,
         "current_portfolio": portfolio,
+        "existing_candidates": candidates,
     })

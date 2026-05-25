@@ -54,6 +54,7 @@ class StockResponse(BaseModel):
     target_price: Optional[float] = None
     stop_loss: Optional[float] = None
     reason: Optional[str] = None
+    research_report: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -61,6 +62,16 @@ class StockResponse(BaseModel):
     @classmethod
     def _coerce_confidence(cls, v):
         return int(v)
+
+    @field_validator("target_price", "stop_loss", "position", mode="before")
+    @classmethod
+    def _coerce_float(cls, v):
+        if v is None or v == "":
+            return None
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
 
 
 # ============================================================================
@@ -85,6 +96,16 @@ def get_stock(stock_id: int, user_id: int, conn: Optional[sqlite3.Connection] = 
     return dict(row)
 
 
+def _coerce_float(v: object) -> Optional[float]:
+    """Coerce a value to float or None (handles string payloads from LLM proposals)."""
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
 def create_stock(
     user_id: int,
     name: str,
@@ -99,6 +120,9 @@ def create_stock(
     status: str = "adopted",
     conn: Optional[sqlite3.Connection] = None,
 ) -> dict:
+    target_price = _coerce_float(target_price)
+    stop_loss = _coerce_float(stop_loss)
+    position = _coerce_float(position)
     with get_conn(conn) as c:
         try:
             cursor = c.execute(
@@ -108,7 +132,21 @@ def create_stock(
             )
             row = c.execute("SELECT * FROM stocks WHERE id = ?", (cursor.lastrowid,)).fetchone()
         except sqlite3.IntegrityError:
-            raise HTTPException(status_code=409, detail="Duplicate entry or constraint violation")
+            existing = c.execute(
+                "SELECT id FROM stocks WHERE user_id = ? AND code = ? AND status = 'removed'",
+                (user_id, code),
+            ).fetchone()
+            if existing:
+                c.execute(
+                    "UPDATE stocks SET status = ?, name = ?, confidence = ?, industry_name = ?, "
+                    "position = ?, advice = ?, target_price = ?, stop_loss = ?, reason = ?, "
+                    "updated_at = datetime('now') WHERE id = ?",
+                    (status, name, confidence, industry_name or "", position, advice or "",
+                     target_price, stop_loss, reason or "", existing["id"]),
+                )
+                row = c.execute("SELECT * FROM stocks WHERE id = ?", (existing["id"],)).fetchone()
+            else:
+                raise HTTPException(status_code=409, detail="Duplicate entry or constraint violation")
     return dict(row)
 
 
@@ -128,6 +166,9 @@ def update_stock(
     status: Optional[str] = None,
     conn: Optional[sqlite3.Connection] = None,
 ) -> dict:
+    target_price = _coerce_float(target_price)
+    stop_loss = _coerce_float(stop_loss)
+    position = _coerce_float(position)
     data: dict = {}
     if name is not None:
         data["name"] = name

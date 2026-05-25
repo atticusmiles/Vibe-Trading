@@ -1431,18 +1431,95 @@ async def get_digest_detail(digest_id: int, user_id: int = Depends(require_user)
     return dict(row)
 
 
+async def _sync_news_for_date(target_date: str) -> int:
+    """Fetch news from CLS for a specific date and save to DB.
+    Returns the number of items synced."""
+    from datetime import datetime, timedelta
+    from src.datasources.news import _cls_search_news, SHANGHAI_TZ as _TZ, NewsItem, NewsSyncService
+
+    start_dt = datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=_TZ)
+    end_dt = start_dt + timedelta(days=1)
+    start_ts = int(start_dt.timestamp())
+    end_ts = int(end_dt.timestamp())
+
+    seen_ids: set[str] = set()
+    all_items: list[NewsItem] = []
+    cursor = end_ts
+    first = True
+
+    while cursor > start_ts:
+        if not first:
+            await asyncio.sleep(0.5)
+        first = False
+        try:
+            batch = await _cls_search_news("", "", limit=10, start_time=cursor)
+        except Exception:
+            break
+        if not batch:
+            break
+
+        round_new = 0
+        for item in batch:
+            try:
+                item_ts = int(datetime.strptime(item.time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=_TZ).timestamp())
+            except (ValueError, TypeError):
+                continue
+            if item_ts >= end_ts or item_ts < start_ts:
+                continue
+            if item.source_id in seen_ids:
+                continue
+            seen_ids.add(item.source_id)
+            all_items.append(item)
+            round_new += 1
+
+        if round_new == 0:
+            break  # past the target date
+
+        oldest = batch[-1]
+        try:
+            oldest_ts = int(datetime.strptime(oldest.time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=_TZ).timestamp())
+        except (ValueError, TypeError):
+            break
+        if oldest_ts >= cursor:
+            break
+        cursor = oldest_ts
+
+    if not all_items:
+        return 0
+
+    await asyncio.to_thread(NewsSyncService._save_rows, [it.to_db_row() for it in all_items])
+    return len(all_items)
+
+
 @app.post("/api/news/digests/trigger")
 async def trigger_digest(
     target_date: str | None = None,
     user_id: int = Depends(require_user),
 ):
-    """Manually trigger digest generation for a given date (default: yesterday)."""
-    from src.scheduler import generate_daily_digest
+    """Manually trigger digest generation for a given date (default: yesterday).
 
-    result = await generate_daily_digest(target_date)
+    Uses existing news in the database only — no sync/fetch is performed.
+    """
+    from src.scheduler import generate_daily_digest_from_preset
+
+    if target_date is None:
+        from datetime import timedelta, timezone
+        target_date = (datetime.now(timezone(timedelta(hours=8))) - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    result = await generate_daily_digest_from_preset(target_date)
     if not result:
         raise HTTPException(status_code=404, detail="No news found for that date")
     return result
+
+
+@app.post("/api/news/sync")
+async def sync_news_by_date(
+    target_date: str,
+    user_id: int = Depends(require_user),
+):
+    """Sync news from CLS search API for a specific date, regardless of existing data."""
+    synced = await _sync_news_for_date(target_date)
+    return {"date": target_date, "synced": synced}
 
 
 @app.get("/api/news/recent")
@@ -1458,7 +1535,7 @@ async def list_recent_news(
 
     return await get_recent_news(
         start_date=start_date, end_date=end_date,
-        title=title, limit=min(limit, 500),
+        title=title, limit=min(limit, 5000),
     )
 
 
@@ -1506,6 +1583,7 @@ async def trigger_scan(
     from src.scheduler import (
         _run_preset,
         _build_existing_list,
+        _build_existing_candidates,
         _build_trend_context,
         _build_industry_details,
         _build_current_portfolio,
@@ -1516,12 +1594,14 @@ async def trigger_scan(
             run_id = _run_preset("scan_trends", {
                 "market": "A股",
                 "existing_trends": _build_existing_list("trend"),
+                "existing_candidates": _build_existing_candidates("trend"),
             })
         elif target_type == "industries":
             run_id = _run_preset("scan_industries", {
                 "trend_context": _build_trend_context(),
                 "existing_industries": _build_existing_list("industry"),
                 "existing_trends": _build_existing_list("trend"),
+                "existing_candidates": _build_existing_candidates("industry"),
             })
         elif target_type == "stocks":
             industry_details = _build_industry_details()
@@ -1536,6 +1616,7 @@ async def trigger_scan(
                 "industry_details": industry_details,
                 "existing_stocks": _build_existing_list("stock"),
                 "current_portfolio": _build_current_portfolio(),
+                "existing_candidates": _build_existing_candidates("stock"),
             })
 
         if not run_id:

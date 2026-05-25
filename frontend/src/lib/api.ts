@@ -157,7 +157,7 @@ export const api = {
   listIndustries: (status?: string) =>
     request<IndustryItem[]>(`/api/industries${status ? `?status=${status}` : ""}`),
   getIndustry: (id: number) => request<IndustryItem>(`/api/industries/${id}`),
-  createIndustry: (data: { name: string; confidence?: number; reason?: string; research_report?: string; recommended_stocks?: string[] }) =>
+  createIndustry: (data: { name: string; confidence?: number; abstract?: string; research_report?: string }) =>
     request<IndustryItem>("/api/industries", { method: "POST", body: JSON.stringify(data) }),
   updateIndustry: (id: number, data: Partial<IndustryItem>) =>
     request<IndustryItem>(`/api/industries/${id}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -203,8 +203,16 @@ export const api = {
   getDigestDetail: (id: number) => request<NewsDigestItem>(`/api/news/digests/${id}`),
   triggerDigest: (target_date?: string) =>
     request<NewsDigestItem>("/api/news/digests/trigger" + (target_date ? `?target_date=${target_date}` : ""), { method: "POST" }),
-  listRecentNews: (params?: { limit?: number }) =>
-    request<NewsItem[]>("/api/news/recent" + (params?.limit ? `?limit=${params.limit}` : "")),
+  listRecentNews: (params?: { limit?: number; start_date?: string; end_date?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.start_date) qs.set("start_date", params.start_date);
+    if (params?.end_date) qs.set("end_date", params.end_date);
+    const qstr = qs.toString();
+    return request<NewsItem[]>("/api/news/recent" + (qstr ? `?${qstr}` : ""));
+  },
+  syncNewsByDate: (target_date: string) =>
+    request<{ date: string; synced: number }>("/api/news/sync?target_date=" + target_date, { method: "POST" }),
 
   // Candidates
   listCandidates: (params?: { target_type?: string; candidate_status?: string; page?: number; per_page?: number }) => {
@@ -413,6 +421,7 @@ export interface TrendItem {
   level: string | null;
   confidence: number;
   evidence: string | null;
+  research_report: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -423,10 +432,8 @@ export interface IndustryItem {
   status: string;
   name: string;
   confidence: number;
-  reason: string | null;
+  abstract: string | null;
   research_report: string | null;
-  recommended_stocks: string;
-  recommended_count: number;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -444,6 +451,7 @@ export interface StockItem {
   target_price: number | null;
   stop_loss: number | null;
   reason: string | null;
+  research_report: string | null;
   created_at: string | null;
   updated_at: string | null;
 }

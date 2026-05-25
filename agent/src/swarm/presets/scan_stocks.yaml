@@ -19,6 +19,9 @@ agents:
       ## 现有股票（避免重复）
       {existing_stocks}
 
+      ## 已有候选（含一周内拒绝的，避免重复提交）
+      {existing_candidates}
+
       ## 当前持仓
       {current_portfolio}
 
@@ -44,8 +47,9 @@ agents:
       - source_context 中说明所属行业和受益逻辑
       - 已在"当前持仓"中的股票仍可入选，但需标注"加仓"或"持有观察"
       - 不要重复提交"现有股票"列表中已有的股票
-    tools: [bash, read_file, write_file, fetch_financial, fetch_news, fetch_kline, fetch_quote, manage_candidates, load_skill]
-    skills: [tushare, yfinance, fundamental-filter, technical-basic, china-a-shares]
+      - 不要重复提交"已有候选"中列出的候选（包括一周内被拒绝的）
+    tools: [web_search, fetch_financial, fetch_news, fetch_kline, fetch_quote, manage_candidates, load_skill]
+    skills: [yfinance, fundamental-filter, technical-basic, china-a-shares]
     max_iterations: 30
     timeout_seconds: 300
 
@@ -77,4 +81,7 @@ variables:
     required: false
   - name: current_portfolio
     description: "当前持仓信息（系统自动注入）"
+    required: false
+  - name: existing_candidates
+    description: "当前 research_candidates 表中 pending/researching/proposed + 一周内 passed 的候选（系统自动注入）"
     required: false

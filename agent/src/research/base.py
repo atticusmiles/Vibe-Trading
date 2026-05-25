@@ -15,9 +15,9 @@ TABLE_MAP: Dict[str, str] = {"trend": "trends", "industry": "industries", "stock
 
 # Allowed payload fields per target type (prevents writing to id, user_id, etc.)
 ALLOWED_FIELDS: Dict[str, set] = {
-    "trend": {"title", "level", "confidence", "evidence"},
-    "industry": {"name", "confidence", "reason", "research_report", "recommended_stocks"},
-    "stock": {"name", "code", "confidence", "industry_name", "position", "advice", "target_price", "stop_loss", "reason"},
+    "trend": {"title", "level", "confidence", "evidence", "research_report"},
+    "industry": {"name", "confidence", "abstract", "research_report"},
+    "stock": {"name", "code", "confidence", "industry_name", "position", "advice", "target_price", "stop_loss", "reason", "research_report"},
 }
 
 # Status → SQL filter fragment

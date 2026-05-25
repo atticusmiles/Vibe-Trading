@@ -9,10 +9,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
+
+SHANGHAI_TZ = timezone(timedelta(hours=8))
 
 from src.agent.context import ContextBuilder
 from src.agent.skills import SkillsLoader
@@ -30,6 +33,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MAX_ITERATIONS = int(os.getenv("SWARM_WORKER_MAX_ITER", "50"))
 _DEFAULT_TIMEOUT_SECONDS = int(os.getenv("SWARM_WORKER_TIMEOUT", "300"))
 _MAX_TOKEN_ESTIMATE = 60_000
+
+# Strip ANSI escape codes → e.g. "\x1b[0m" / "\x1b[1;32m"
+_ANSI_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
 
 def _emit(
@@ -55,7 +61,7 @@ def _emit(
         agent_id=agent_id,
         task_id=task_id,
         data=data or {},
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(SHANGHAI_TZ).isoformat(),
     )
     try:
         callback(event)
@@ -123,6 +129,7 @@ def build_worker_prompt(
     agent_spec: SwarmAgentSpec,
     upstream_summaries: dict[str, str],
     skill_descriptions: str,
+    include_shell_tools: bool = False,
 ) -> str:
     """Build the worker's system prompt with role, upstream context, and skills.
 
@@ -130,6 +137,7 @@ def build_worker_prompt(
         agent_spec: The agent's role specification.
         upstream_summaries: Mapping of context_key -> upstream task summary.
         skill_descriptions: Pre-filtered skill description text.
+        include_shell_tools: Whether shell tools (bash) are available.
 
     Returns:
         Complete system prompt string for the worker LLM.
@@ -154,26 +162,39 @@ def build_worker_prompt(
             f"## Available Skills (use load_skill to access full documentation)\n\n{skill_descriptions}"
         )
 
+    if include_shell_tools:
+        execute_rules = (
+            "**Phase 2 — Execute (≤15 tool calls):**\n"
+            "- `load_skill` first to get data access methods and analysis patterns.\n"
+            "- Write ONE focused Python script via `write_file`, then run it with `bash python script.py`.\n"
+            "- Do NOT write long Python code inside bash. Use write_file + bash.\n"
+            "- Do NOT fetch data with curl/requests. Use the patterns from load_skill (yfinance, OKX API via Python).\n"
+            "- If a script fails, read the error, fix with `edit_file`, re-run. Max 2 retries per script."
+        )
+    else:
+        execute_rules = (
+            "**Phase 2 — Execute (≤15 tool calls):**\n"
+            "- `load_skill` first to get data access methods and analysis patterns.\n"
+            "- Use the available tools listed above (fetch_kline, fetch_quote, etc.) to gather data.\n"
+            "- Call `manage_candidates` to write your findings as instructed in the task.\n"
+            "- Work efficiently — you don't have bash access in this environment."
+        )
+
     prompt_parts.append(
         "## Execution Rules\n\n"
         "You have a HARD LIMIT of 20 tool calls. After that you will be cut off. Work efficiently.\n\n"
         "**Phase 1 — Plan (0 tool calls):** Before calling any tool, state your plan in 3-5 bullet points.\n\n"
-        "**Phase 2 — Execute (≤15 tool calls):**\n"
-        "- `load_skill` first to get data access methods and analysis patterns.\n"
-        "- Write ONE focused Python script via `write_file`, then run it with `bash python script.py`.\n"
-        "- Do NOT write long Python code inside bash. Use write_file + bash.\n"
-        "- Do NOT fetch data with curl/requests. Use the patterns from load_skill (yfinance, OKX API via Python).\n"
-        "- If a script fails, read the error, fix with `edit_file`, re-run. Max 2 retries per script.\n\n"
+        + execute_rules + "\n\n"
         "**Phase 3 — Summarize (0 tool calls):**\n"
         "- Write your final findings as a concise markdown summary directly in your response.\n"
         "- Include specific numbers, dates, and actionable conclusions.\n"
         "- Respond in the same language as the task prompt."
     )
 
-    now = datetime.now()
+    now = datetime.now(SHANGHAI_TZ)
     prompt_parts.append(
         f"## Current Date & Time\n\n"
-        f"Today is {now.strftime('%A, %B %d, %Y %H:%M (local)')}."
+        f"Today is {now.strftime('%A, %B %d, %Y %H:%M (CST)')}."
     )
 
     return "\n\n".join(prompt_parts)
@@ -227,7 +248,7 @@ def run_worker(
     # 3. Build system prompt with filtered skills
     skills_loader = SkillsLoader()
     skill_desc = _filter_skill_descriptions(skills_loader, agent_spec.skills)
-    system_prompt = build_worker_prompt(agent_spec, upstream_summaries, skill_desc)
+    system_prompt = build_worker_prompt(agent_spec, upstream_summaries, skill_desc, include_shell_tools=include_shell_tools)
 
     # 4. Resolve prompt template with user vars (missing vars → LLM infers)
     class _FallbackDict(dict):
@@ -315,8 +336,8 @@ def run_worker(
                 "role": "user",
                 "content": (
                     f"[SYSTEM] You have {remaining} iterations remaining. "
-                    "Stop calling tools and immediately output your final analysis summary as plain text. "
-                    "Do not call any more tools."
+                    "Finish your current tool call, then output your final summary as plain text. "
+                    "Do not start any new multi-step workflows."
                 ),
             })
 
@@ -330,8 +351,10 @@ def run_worker(
             remaining_timeout = max(10, int(timeout - elapsed))
 
             def _on_text_chunk(delta: str) -> None:
-                _emit(event_callback, "worker_text", agent_id, task_id,
-                      {"content": delta, "iteration": iteration})
+                cleaned = _ANSI_RE.sub("", delta)
+                if cleaned:
+                    _emit(event_callback, "worker_text", agent_id, task_id,
+                          {"content": cleaned, "iteration": iteration})
 
             response = llm.stream_chat(
                 messages,
@@ -360,7 +383,7 @@ def run_worker(
 
         # Track last meaningful assistant content
         if response.content and len(response.content.strip()) > 20:
-            last_assistant_content = response.content
+            last_assistant_content = _ANSI_RE.sub("", response.content)
 
         # If no tool calls, this is the final response
         if not response.has_tool_calls:

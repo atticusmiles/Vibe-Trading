@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 
 _POLL_INTERVAL = 30
-_BACKFILL_MAX_DAYS = 7
+_BACKFILL_MAX_DAYS = 3
 _BACKFILL_DELAY = 1.0
 
 
@@ -219,8 +219,8 @@ async def get_news_digest(
 ) -> list[dict[str, Any]]:
     """Read daily news digests from news_digests table."""
     today = datetime.now().strftime("%Y-%m-%d")
-    week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-    sd = start_date or week_ago
+    days_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    sd = start_date or days_ago
     ed = end_date or today
 
     return await asyncio.to_thread(_query_news_digest_sync, sd, ed)
@@ -378,10 +378,10 @@ class NewsSyncService:
 # Internal implementations (sync workers + async wrappers)
 # ===========================================================================
 
-def _cls_telegraph_sync(limit: int) -> list[NewsItem]:
+def _cls_telegraph_sync(limit: int, last_time: int | None = None) -> list[NewsItem]:
     """Fetch CLS telegraph list with sign verification (sync, runs in thread)."""
     url = "https://www.cls.cn/nodeapi/telegraphList"
-    current_time = int(_time.time())
+    current_time = last_time if last_time is not None else int(_time.time())
     base_params = {
         "app": "CailianpressWeb",
         "category": "",
@@ -436,8 +436,8 @@ def _cls_telegraph_sync(limit: int) -> list[NewsItem]:
     return items[:limit]
 
 
-async def _cls_telegraph(limit: int) -> list[NewsItem]:
-    return await asyncio.to_thread(_cls_telegraph_sync, limit)
+async def _cls_telegraph(limit: int, last_time: int | None = None) -> list[NewsItem]:
+    return await asyncio.to_thread(_cls_telegraph_sync, limit, last_time)
 
 
 _CLS_SEARCH_URL = "https://www.cls.cn/api/csw"
@@ -468,11 +468,14 @@ def _cls_search_news_sync(
     last_time = start_time if start_time is not None else int(_time.time())
     pages = max(1, (limit + 9) // 10)
 
-    for _ in range(pages):
+    for pi in range(pages):
+        if pi > 0:
+            _time.sleep(0.3)  # rate limit protection between pages
         body = {
             "lastTime": last_time,
             "keyword": keyword,
             "category": category,
+            "os": "web",
             "os": "web",
             "sv": _CLS_SEARCH_SV,
             "app": "CailianpressWeb",

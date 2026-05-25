@@ -18,22 +18,33 @@ class FetchNewsTool(BaseTool):
     name = "fetch_news"
     description = (
         "Fetch or manage news. "
-        "With a stock code, returns stock-specific news. "
-        "With a keyword, searches news by keyword. "
+        "With 'code', returns stock-specific news for that stock. "
+        "With 'codes' (array), returns news for multiple stocks in one call. "
+        "With 'keyword', searches news by that keyword. "
+        "With 'keywords' (array), searches news for multiple keywords in one call. "
         "With mode='digest', returns daily news digests. "
-        "With mode='save_digest', saves a news digest. "
-        "Without either, returns recent market-wide news."
+        "Without any param, returns recent market-wide news."
     )
     parameters = {
         "type": "object",
         "properties": {
             "code": {
                 "type": "string",
-                "description": "Stock code for stock-specific news (optional).",
+                "description": "Single stock code (optional, mutually exclusive with 'codes').",
+            },
+            "codes": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Multiple stock codes to fetch in one batch (optional).",
             },
             "keyword": {
                 "type": "string",
-                "description": "Keyword to search news (optional, used when code is not provided).",
+                "description": "Single keyword to search (optional, mutually exclusive with 'keywords').",
+            },
+            "keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Multiple keywords to search in one batch (optional).",
             },
             "mode": {
                 "type": "string",
@@ -46,7 +57,7 @@ class FetchNewsTool(BaseTool):
             },
             "limit": {
                 "type": "integer",
-                "description": "Max news items to return (default: 10, max: 50)",
+                "description": "Max news items per stock/keyword (default: 10, max: 50)",
                 "default": 10,
             },
         },
@@ -56,6 +67,8 @@ class FetchNewsTool(BaseTool):
     is_readonly = True
 
     def execute(self, **kwargs: Any) -> str:
+        codes = kwargs.get("codes")
+        keywords = kwargs.get("keywords")
         code = kwargs.get("code")
         keyword = kwargs.get("keyword")
         mode = kwargs.get("mode")
@@ -63,6 +76,10 @@ class FetchNewsTool(BaseTool):
         limit = min(int(kwargs.get("limit", 10)), 50)
 
         try:
+            if codes:
+                return self._batch_stock_news(codes, limit)
+            if keywords:
+                return self._batch_search(keywords, limit)
             if code:
                 return self._stock_news(code, limit)
             if keyword:
@@ -72,6 +89,35 @@ class FetchNewsTool(BaseTool):
             return self._recent(limit, days)
         except Exception as exc:
             return _err(str(exc))
+
+    def _batch_stock_news(self, codes: list[str], limit: int) -> str:
+        results = []
+        for c in codes:
+            c = normalize_code(c)
+            items = run_async(search_stock_news(c, limit=limit))
+            results.append({
+                "code": c,
+                "count": len(items),
+                "news": [_trim(item.to_dict()) for item in items],
+            })
+        return json.dumps(
+            {"status": "ok", "mode": "batch_stock", "results": results},
+            ensure_ascii=False, default=str,
+        )
+
+    def _batch_search(self, keywords: list[str], limit: int) -> str:
+        results = []
+        for kw in keywords:
+            items = run_async(search_news(kw, limit=limit))
+            results.append({
+                "keyword": kw,
+                "count": len(items),
+                "news": [_trim(item.to_dict()) for item in items],
+            })
+        return json.dumps(
+            {"status": "ok", "mode": "batch_search", "results": results},
+            ensure_ascii=False,
+        )
 
     def _stock_news(self, code: str, limit: int) -> str:
         code = normalize_code(code)

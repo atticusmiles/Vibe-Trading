@@ -20,17 +20,15 @@ from .base import get_conn, require_jwt, require_real_user, status_filter
 class IndustryCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     confidence: int = Field(5, ge=0, le=10)
-    reason: Optional[str] = None
+    abstract: Optional[str] = None
     research_report: Optional[str] = None
-    recommended_stocks: Optional[List[str]] = None
 
 
 class IndustryUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     confidence: Optional[int] = Field(None, ge=0, le=10)
-    reason: Optional[str] = None
+    abstract: Optional[str] = None
     research_report: Optional[str] = None
-    recommended_stocks: Optional[List[str]] = None
     status: Optional[str] = Field(None, pattern=r"^(proposed|adopted|rejected|removed)$")
 
 
@@ -40,10 +38,8 @@ class IndustryResponse(BaseModel):
     status: str
     name: str
     confidence: int = 5
-    reason: Optional[str] = None
+    abstract: Optional[str] = None
     research_report: Optional[str] = None
-    recommended_stocks: Optional[str] = "[]"
-    recommended_count: int = 0
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -51,11 +47,6 @@ class IndustryResponse(BaseModel):
     @classmethod
     def _coerce_confidence(cls, v):
         return int(v)
-
-
-def _with_count(row: dict) -> dict:
-    row["recommended_count"] = len(json.loads(row.get("recommended_stocks", "[]")))
-    return row
 
 
 # ============================================================================
@@ -69,7 +60,7 @@ def list_industries(user_id: int, status: Optional[str] = None) -> list[dict]:
             f"SELECT * FROM industries WHERE user_id = ? {filt} ORDER BY updated_at DESC",
             (user_id,),
         ).fetchall()
-    return [_with_count(dict(r)) for r in rows]
+    return [(dict(r)) for r in rows]
 
 
 def get_industry(industry_id: int, user_id: int, conn: Optional[sqlite3.Connection] = None) -> dict:
@@ -77,33 +68,41 @@ def get_industry(industry_id: int, user_id: int, conn: Optional[sqlite3.Connecti
         row = c.execute("SELECT * FROM industries WHERE id = ? AND user_id = ?", (industry_id, user_id)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Not found")
-    return _with_count(dict(row))
+    return dict(row)
 
 
 def create_industry(
     user_id: int,
     name: str,
     confidence: int = 5,
-    reason: Optional[str] = None,
+    abstract: Optional[str] = None,
     research_report: Optional[str] = None,
-    recommended_stocks: Optional[List[str]] = None,
     status: str = "adopted",
     conn: Optional[sqlite3.Connection] = None,
 ) -> dict:
-    stocks_json = json.dumps(recommended_stocks or [])
     with get_conn(conn) as c:
         try:
             cursor = c.execute(
-                "INSERT INTO industries (user_id, status, name, confidence, reason, research_report, recommended_stocks) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (user_id, status, name, confidence, reason or "", research_report or "", stocks_json),
+                "INSERT INTO industries (user_id, status, name, confidence, abstract, research_report) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, status, name, confidence, abstract or "", research_report or ""),
             )
             row = c.execute("SELECT * FROM industries WHERE id = ?", (cursor.lastrowid,)).fetchone()
         except sqlite3.IntegrityError:
-            raise HTTPException(status_code=409, detail="Duplicate entry or constraint violation")
-    r = dict(row)
-    r["recommended_count"] = len(recommended_stocks or [])
-    return r
+            existing = c.execute(
+                "SELECT id FROM industries WHERE user_id = ? AND name = ? AND status = 'removed'",
+                (user_id, name),
+            ).fetchone()
+            if existing:
+                c.execute(
+                    "UPDATE industries SET status = ?, confidence = ?, abstract = ?, "
+                    "research_report = ?, updated_at = datetime('now') WHERE id = ?",
+                    (status, confidence, abstract or "", research_report or "", existing["id"]),
+                )
+                row = c.execute("SELECT * FROM industries WHERE id = ?", (existing["id"],)).fetchone()
+            else:
+                raise HTTPException(status_code=409, detail="Duplicate entry or constraint violation")
+    return dict(row)
 
 
 def update_industry(
@@ -112,9 +111,8 @@ def update_industry(
     *,
     name: Optional[str] = None,
     confidence: Optional[int] = None,
-    reason: Optional[str] = None,
+    abstract: Optional[str] = None,
     research_report: Optional[str] = None,
-    recommended_stocks: Optional[List[str]] = None,
     status: Optional[str] = None,
     conn: Optional[sqlite3.Connection] = None,
 ) -> dict:
@@ -123,12 +121,10 @@ def update_industry(
         data["name"] = name
     if confidence is not None:
         data["confidence"] = confidence
-    if reason is not None:
-        data["reason"] = reason
+    if abstract is not None:
+        data["abstract"] = abstract
     if research_report is not None:
         data["research_report"] = research_report
-    if recommended_stocks is not None:
-        data["recommended_stocks"] = json.dumps(recommended_stocks)
     if status is not None:
         data["status"] = status
     if not data:
@@ -140,7 +136,7 @@ def update_industry(
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Not found")
         row = c.execute("SELECT * FROM industries WHERE id = ? AND user_id = ?", (industry_id, user_id)).fetchone()
-    return _with_count(dict(row))
+    return dict(row)
 
 
 def delete_industry(industry_id: int, user_id: int, conn: Optional[sqlite3.Connection] = None) -> dict:
@@ -165,7 +161,7 @@ def register_routes(app: FastAPI) -> None:
 
     @app.post("/api/industries", response_model=IndustryResponse, status_code=status.HTTP_201_CREATED)
     async def _create(req: IndustryCreate, user_id: int = Depends(require_real_user)):
-        return create_industry(user_id, req.name, req.confidence, req.reason, req.research_report, req.recommended_stocks)
+        return create_industry(user_id, req.name, req.confidence, req.abstract, req.research_report)
 
     @app.get("/api/industries/{industry_id}", response_model=IndustryResponse)
     async def _get(industry_id: int, user_id: int = Depends(require_real_user)):

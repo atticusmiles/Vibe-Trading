@@ -323,6 +323,7 @@ export function Trends() {
                   {selected.level && <div><span className="text-xs font-medium text-muted-foreground">级别：</span> <span className={cn("ml-2 rounded px-1.5 py-0.5 text-xs font-medium", LEVEL_COLORS[selected.level])}>{LEVEL_LABELS[selected.level] || selected.level}</span></div>}
                   <div><span className="text-xs font-medium text-muted-foreground">置信度：</span> <ConfidenceDot value={selected.confidence} /></div>
                   {selected.evidence && <div><span className="text-xs font-medium text-muted-foreground">证据：</span><div className="mt-1 prose prose-sm dark:prose-invert max-w-none text-sm"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selected.evidence}</ReactMarkdown></div></div>}
+                  {selected.research_report && <div><span className="text-xs font-medium text-muted-foreground">研究报告：</span><div className="mt-1 prose prose-sm dark:prose-invert max-w-none text-sm"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selected.research_report}</ReactMarkdown></div></div>}
                 </div>
                 <div className="border-t pt-3 text-xs text-muted-foreground">
                   <p>状态：{STATUS_LABELS[selected.status] || selected.status}</p>

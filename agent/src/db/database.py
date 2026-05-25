@@ -116,6 +116,7 @@ _CREATE_FACT_TABLES = [
         level       TEXT CHECK(level IN ('long-term','mid-term','short-term')),
         confidence  INTEGER DEFAULT 5 CHECK(confidence BETWEEN 0 AND 10),
         evidence    TEXT,
+        research_report TEXT,
         created_at  TEXT DEFAULT (datetime('now')),
         updated_at  TEXT DEFAULT (datetime('now')),
         UNIQUE(user_id, title)
@@ -126,9 +127,8 @@ _CREATE_FACT_TABLES = [
         status              TEXT NOT NULL DEFAULT 'adopted' CHECK(status IN ('proposed','adopted','rejected','removed')),
         name                TEXT NOT NULL,
         confidence          INTEGER DEFAULT 5 CHECK(confidence BETWEEN 0 AND 10),
-        reason              TEXT,
+        abstract            TEXT,
         research_report     TEXT,
-        recommended_stocks  TEXT DEFAULT '[]',
         created_at          TEXT DEFAULT (datetime('now')),
         updated_at          TEXT DEFAULT (datetime('now')),
         UNIQUE(user_id, name)
@@ -146,6 +146,7 @@ _CREATE_FACT_TABLES = [
         target_price    REAL,
         stop_loss       REAL,
         reason          TEXT,
+        research_report TEXT,
         created_at      TEXT DEFAULT (datetime('now')),
         updated_at      TEXT DEFAULT (datetime('now')),
         UNIQUE(user_id, code)

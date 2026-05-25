@@ -7,7 +7,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { DetailPanel } from "@/components/fact-tables/DetailPanel";
 import { EmptyState } from "@/components/fact-tables/EmptyState";
-import { TagInput } from "@/components/fact-tables/TagInput";
 import { useDeleteWithUndo } from "@/components/fact-tables/DeleteWithUndo";
 import { ProposalBanner } from "@/components/proposals/ProposalBanner";
 import { ProposalDetailModal } from "@/components/proposals/ProposalDetailModal";
@@ -23,11 +22,6 @@ const STATUS_LABELS: Record<string, string> = { proposed: "提议中", adopted: 
 const inputCls = "w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary";
 type Mode = "view" | "add" | "edit";
 type Tab = "entities" | "candidates";
-
-function parseStocks(raw: string | string[]): string[] {
-  try { return typeof raw === "string" ? JSON.parse(raw || "[]") : raw; }
-  catch { return []; }
-}
 
 export function Industries() {
   const navigate = useNavigate();
@@ -48,9 +42,8 @@ export function Industries() {
   // Form state
   const [formName, setFormName] = useState("");
   const [formConfidence, setFormConfidence] = useState(5);
-  const [formReason, setFormReason] = useState("");
+  const [formAbstract, setFormAbstract] = useState("");
   const [formReport, setFormReport] = useState("");
-  const [formStocks, setFormStocks] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -99,7 +92,7 @@ export function Industries() {
   const filtered = useMemo(() => {
     if (!search) return items;
     const q = search.toLowerCase();
-    return items.filter((i) => i.name.toLowerCase().includes(q) || (i.reason || "").toLowerCase().includes(q));
+    return items.filter((i) => i.name.toLowerCase().includes(q) || (i.abstract || "").toLowerCase().includes(q));
   }, [items, search]);
 
   const selected = useMemo(() => items.find((i) => i.id === selectedId) ?? null, [items, selectedId]);
@@ -121,7 +114,7 @@ export function Industries() {
 
   const startAdd = () => {
     setSelectedId(null);
-    setFormName(""); setFormConfidence(5); setFormReason(""); setFormReport(""); setFormStocks([]);
+    setFormName(""); setFormConfidence(5); setFormAbstract(""); setFormReport("");
     setMode("add");
   };
 
@@ -129,9 +122,8 @@ export function Industries() {
     if (!selected) return;
     setFormName(selected.name);
     setFormConfidence(selected.confidence);
-    setFormReason(selected.reason || "");
+    setFormAbstract(selected.abstract || "");
     setFormReport(selected.research_report || "");
-    setFormStocks(parseStocks(selected.recommended_stocks));
     setMode("edit");
   };
 
@@ -140,14 +132,14 @@ export function Industries() {
     setSaving(true);
     try {
       if (mode === "add") {
-        const created = await api.createIndustry({ name: formName.trim(), confidence: formConfidence, reason: formReason, research_report: formReport, recommended_stocks: formStocks });
+        const created = await api.createIndustry({ name: formName.trim(), confidence: formConfidence, abstract: formAbstract, research_report: formReport });
         await fetchItems();
         setSelectedId(created.id);
         navigate(`/industries#${created.id}`, { replace: true });
         setMode("view");
         toast.success("行业已创建");
       } else if (mode === "edit" && selectedId) {
-        await api.updateIndustry(selectedId, { name: formName.trim(), confidence: formConfidence, reason: formReason, research_report: formReport, recommended_stocks: formStocks } as any);
+        await api.updateIndustry(selectedId, { name: formName.trim(), confidence: formConfidence, abstract: formAbstract, research_report: formReport } as any);
         await fetchItems();
         setMode("view");
         toast.success("行业已更新");
@@ -247,7 +239,6 @@ export function Industries() {
                     <StatusDot status={i.status} />
                     <span className="min-w-0 flex-1 truncate">{i.name}</span>
                     <ConfidenceDot value={i.confidence} />
-                    {i.recommended_count > 0 && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px]">{i.recommended_count}</span>}
                   </div>
                   );
                 }}
@@ -275,16 +266,12 @@ export function Industries() {
                     <input type="range" min={0} max={10} value={formConfidence} onChange={(e) => setFormConfidence(Number(e.target.value))} className="w-full accent-primary" />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">原因</label>
-                    <textarea value={formReason} onChange={(e) => setFormReason(e.target.value)} rows={3} className={`${inputCls} resize-y`} />
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">摘要</label>
+                    <textarea value={formAbstract} onChange={(e) => setFormAbstract(e.target.value)} rows={3} className={`${inputCls} resize-y`} />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">研究报告</label>
                     <textarea value={formReport} onChange={(e) => setFormReport(e.target.value)} rows={4} className={`${inputCls} resize-y`} />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">推荐股票</label>
-                    <TagInput tags={formStocks} onChange={setFormStocks} />
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -305,14 +292,8 @@ export function Industries() {
                 </div>
                 <div className="space-y-2 text-sm">
                   <div><span className="text-xs font-medium text-muted-foreground">置信度：</span> <ConfidenceDot value={selected.confidence} /></div>
-                  {selected.reason && <div><span className="text-xs font-medium text-muted-foreground">原因：</span><div className="mt-1 prose prose-sm dark:prose-invert max-w-none text-sm"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selected.reason}</ReactMarkdown></div></div>}
+                  {selected.abstract && <div><span className="text-xs font-medium text-muted-foreground">摘要：</span><div className="mt-1 prose prose-sm dark:prose-invert max-w-none text-sm"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selected.abstract}</ReactMarkdown></div></div>}
                   {selected.research_report && <div><span className="text-xs font-medium text-muted-foreground">研究报告：</span><div className="mt-1 prose prose-sm dark:prose-invert max-w-none text-sm"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selected.research_report}</ReactMarkdown></div></div>}
-                  {parseStocks(selected.recommended_stocks).length > 0 && (
-                    <div>
-                      <span className="text-xs font-medium text-muted-foreground">推荐股票：</span>
-                      <div className="mt-1 flex flex-wrap gap-1">{parseStocks(selected.recommended_stocks).map((s) => <span key={s} className="rounded bg-muted px-2 py-0.5 text-xs">{s}</span>)}</div>
-                    </div>
-                  )}
                 </div>
                 <div className="border-t pt-3 text-xs text-muted-foreground">
                   <p>状态：{STATUS_LABELS[selected.status] || selected.status}</p>

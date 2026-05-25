@@ -107,7 +107,12 @@ class ManageProposalsTool(BaseTool):
         if proposal_action in ("update", "delete") and not target_id:
             return _err(f"target_id is required for {proposal_action} proposals")
 
-        confidence = kwargs.get("confidence", 5)
+        try:
+            confidence = int(float(kwargs.get("confidence", 5)))
+        except (ValueError, TypeError):
+            return _err(f"confidence must be a number, got '{kwargs.get('confidence')}'")
+        if confidence < 0 or confidence > 10:
+            return _err(f"confidence must be 0-10, got {confidence}")
         summary = kwargs.get("summary", "")
         run_id = kwargs.get("_run_id", "")
         source_agent = kwargs.get("source_agent", "")
@@ -123,6 +128,83 @@ class ManageProposalsTool(BaseTool):
                 payload_data = json.loads(payload)
                 if not payload_data:
                     return _err("payload has no valid fields for create action")
+
+                # Per-type payload field validation
+                _required_by_type = {
+                    "trend": ("title", "level", "confidence", "evidence"),
+                    "industry": ("name", "confidence", "abstract"),
+                    "stock": ("name", "code", "confidence"),
+                }
+                missing = [f for f in _required_by_type.get(target_type, ()) if f not in payload_data]
+                if missing:
+                    return _err(
+                        f"payload missing required fields for {target_type}: {', '.join(missing)}. "
+                        f"Expected: {', '.join(_required_by_type[target_type])}"
+                    )
+
+                # Validate numeric fields and ranges
+                _numeric_fields = {
+                    "trend": {"confidence"},
+                    "industry": {"confidence"},
+                    "stock": {"confidence", "target_price", "stop_loss", "position"},
+                }
+                _range_0_10 = {"confidence"}
+                for field in _numeric_fields.get(target_type, ()):
+                    val = payload_data.get(field)
+                    if val is not None:
+                        try:
+                            num = float(val)
+                        except (ValueError, TypeError):
+                            return _err(
+                                f"payload field '{field}' must be a number, got '{val}'"
+                            )
+                        if field in _range_0_10 and (num < 0 or num > 10):
+                            return _err(
+                                f"payload field '{field}' must be 0-10, got {val}"
+                            )
+
+                # Check for existing pending create proposals with same target (by name)
+                entity_name = payload_data.get("name") or payload_data.get("title") or ""
+                if entity_name:
+                    existing_create = conn.execute(
+                        "SELECT id, confidence, payload FROM proposals "
+                        "WHERE user_id = ? AND target_type = ? AND action = 'create' AND status = 'pending'",
+                        (user_id, target_type),
+                    ).fetchall()
+                    for ex in existing_create:
+                        try:
+                            ex_payload = json.loads(ex["payload"])
+                        except Exception:
+                            continue
+                        ex_name = ex_payload.get("name") or ex_payload.get("title") or ""
+                        if ex_name and ex_name.strip() == entity_name.strip():
+                            if confidence <= ex["confidence"]:
+                                return _err(
+                                    f"冲突: 已有同名待审批提案 #{ex['id']} "
+                                    f"(置信度={ex['confidence']})。如需覆盖请提高置信度。"
+                                )
+                            else:
+                                conn.execute(
+                                    "UPDATE proposals SET status = 'rejected', reviewed_at = ? WHERE id = ?",
+                                    (datetime.now(timezone.utc).isoformat(), ex["id"]),
+                                )
+
+                # Also check if entity with same name already exists in target table
+                if entity_name:
+                    table_map = {"trend": "trends", "industry": "industries", "stock": "stocks"}
+                    table = table_map.get(target_type)
+                    if table:
+                        name_col = "title" if target_type == "trend" else "name"
+                        existing_entity = conn.execute(
+                            f"SELECT id FROM {table} WHERE {name_col} = ? AND status IN ('proposed', 'adopted')",
+                            (entity_name,),
+                        ).fetchone()
+                        if existing_entity:
+                            return _err(
+                                f"冲突: '{entity_name}' 已存在于 {table} 表中 "
+                                f"(ID={existing_entity['id']}, status=已提案/已采纳)。"
+                                f"请使用 proposal_action='update' 来更新现有实体。"
+                            )
 
             # For update proposals: snapshot original state
             original_payload = None

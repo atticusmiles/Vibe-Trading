@@ -114,7 +114,12 @@ class ManageCandidatesTool(BaseTool):
                     skipped += 1
                     continue
                 code = c.get("code")
-                score = c.get("score", 0)
+                try:
+                    score = float(c.get("score", 0))
+                except (ValueError, TypeError):
+                    return _err(f"score must be a number, got '{c.get('score')}'")
+                if score < 0 or score > 10:
+                    return _err(f"score must be 0-10, got {score}")
                 reason = c.get("reason", "")
                 try:
                     conn.execute(

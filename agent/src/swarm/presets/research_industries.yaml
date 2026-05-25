@@ -45,8 +45,8 @@ agents:
       5. `## 趋势受益分析` — 受益于哪些趋势及受益程度
       6. `## 关键风险点` — 列表形式，每项标注影响程度
       7. `## 综合评估` — 评分（0-10）和投资建议
-    tools: [bash, read_file, write_file, fetch_financial, fetch_research, fetch_news, manage_candidates, load_skill]
-    skills: [tushare, yfinance, fundamental-filter, sector-rotation, china-a-shares]
+    tools: [read_url, web_search, fetch_financial, fetch_research, fetch_news, manage_candidates, load_skill]
+    skills: [yfinance, fundamental-filter, sector-rotation, china-a-shares]
     max_iterations: 20
     timeout_seconds: 300
 
@@ -76,7 +76,7 @@ agents:
       - 使用 Markdown 格式撰写：`##` 分章节，**粗体** 标注关键数据，`-` 列表列举要点
       - 引用具体数据和事实支撑每个论点
       - 给出信心评分（0-10）
-    tools: [bash, read_file, write_file, manage_candidates, load_skill]
+    tools: [read_url, web_search, manage_candidates, load_skill]
     skills: [fundamental-filter, sector-rotation, china-a-shares]
     max_iterations: 10
     timeout_seconds: 180
@@ -108,7 +108,7 @@ agents:
       - 引用具体数据反驳
       - 指出投资逻辑中的薄弱环节
       - 给出风险等级（高/中/低）
-    tools: [bash, read_file, write_file, manage_candidates, load_skill]
+    tools: [read_url, web_search, manage_candidates, load_skill]
     skills: [fundamental-filter, sector-rotation, china-a-shares]
     max_iterations: 10
     timeout_seconds: 180
@@ -126,15 +126,20 @@ agents:
       ## 现有行业状态（保鲜时参考）
       {existing_industry}
 
+      ## 已有待审批提案（避免创建内容重复的提案）
+      {existing_proposals}
+
       ## 决策规则
+      0. **冲突检查（第一步）**：仔细阅读"已有待审批提案"，判断当前候选行业是否与已有提案在**内容上重合**（产业链、受益逻辑、细分领域相似）。如果重合，不要创建新提案——直接选 passed 并写明冲突的提案编号
       1. 仔细权衡正反双方在两轮辩论中的所有论点
       2. 哪方的论据更充分、反驳更有力？是否有未被反驳的关键论点？
       3. 做出以下决策之一：
 
       **决策A：proposed（推荐该行业）**
       - 第一步：调用 manage_proposals(action="create", target_type="industry", proposal_action="create", title="提案标题", payload="JSON字段", confidence=评分, summary="提案说明")
-      - 第二步：拿到返回的 proposal_id，调用 manage_candidates(action="update", target_type="industry", target_name="候选名", status="proposed", proposal_id=返回的ID, conclusion="推荐原因")
-      - payload 示例：'{"name":"行业名","confidence":7,"reason":"投资逻辑","recommended_stocks":"[\"股票A\",\"股票B\"]"}'
+      - 第二步：检查第一步的返回结果。如果返回 error（如冲突、校验失败），**禁止继续**调用 manage_candidates(status="proposed")。必须改选决策B，调用 manage_candidates(status="passed") 并注明失败原因
+      - 如果第一步成功（返回 proposal_id），第二步：调用 manage_candidates(action="update", target_type="industry", target_name="候选名", status="proposed", proposal_id=返回的ID, conclusion="推荐原因")
+      - payload 示例：'{"name":"行业名","confidence":7,"abstract":"投资逻辑"}'
 
       **决策B：passed（不推荐，放弃该行业）**
       - 调用 manage_candidates(action="update", target_type="industry", target_name="候选名", status="passed", conclusion="放弃原因")
@@ -147,10 +152,10 @@ agents:
       - 使用 Markdown 格式撰写决策理由
       - 明确给出决策和理由
       - 确保候选最终状态不是 researching
-    tools: [bash, read_file, write_file, manage_candidates, manage_proposals, load_skill]
+    tools: [read_url, web_search, manage_candidates, manage_proposals, load_skill]
     skills: [sector-rotation]
-    max_iterations: 10
-    timeout_seconds: 180
+    max_iterations: 15
+    timeout_seconds: 300
 
 tasks:
   - id: task-research
@@ -260,4 +265,7 @@ variables:
     required: false
   - name: existing_industry
     description: "保鲜时：该行业在 industries 表的当前状态（系统自动注入）"
+    required: false
+  - name: existing_proposals
+    description: "当前 pending 状态提案列表（含标题和摘要，系统自动注入，用于内容去重）"
     required: false

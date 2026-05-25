@@ -21,6 +21,7 @@ class TrendCreate(BaseModel):
     level: Optional[str] = Field(None, pattern=r"^(long-term|mid-term|short-term)$")
     confidence: int = Field(5, ge=0, le=10)
     evidence: Optional[str] = Field(None, max_length=5000)
+    research_report: Optional[str] = None
 
 
 class TrendUpdate(BaseModel):
@@ -28,6 +29,7 @@ class TrendUpdate(BaseModel):
     level: Optional[str] = Field(None, pattern=r"^(long-term|mid-term|short-term)$")
     confidence: Optional[int] = Field(None, ge=0, le=10)
     evidence: Optional[str] = Field(None, max_length=5000)
+    research_report: Optional[str] = None
     status: Optional[str] = Field(None, pattern=r"^(proposed|adopted|rejected|removed)$")
 
 
@@ -39,6 +41,7 @@ class TrendResponse(BaseModel):
     level: Optional[str] = None
     confidence: int = 5
     evidence: Optional[str] = None
+    research_report: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -87,7 +90,19 @@ def create_trend(
             )
             row = c.execute("SELECT * FROM trends WHERE id = ?", (cursor.lastrowid,)).fetchone()
         except sqlite3.IntegrityError:
-            raise HTTPException(status_code=409, detail="Duplicate entry or constraint violation")
+            existing = c.execute(
+                "SELECT id FROM trends WHERE user_id = ? AND title = ? AND status = 'removed'",
+                (user_id, title),
+            ).fetchone()
+            if existing:
+                c.execute(
+                    "UPDATE trends SET status = ?, level = ?, confidence = ?, evidence = ?, "
+                    "updated_at = datetime('now') WHERE id = ?",
+                    (status, level, confidence, evidence or "", existing["id"]),
+                )
+                row = c.execute("SELECT * FROM trends WHERE id = ?", (existing["id"],)).fetchone()
+            else:
+                raise HTTPException(status_code=409, detail="Duplicate entry or constraint violation")
     return dict(row)
 
 

@@ -4,10 +4,11 @@ import { ConfidenceDot } from "@/components/fact-tables/ConfidenceDot";
 import { CompactList } from "@/components/fact-tables/CompactList";
 import { DetailPanel } from "@/components/fact-tables/DetailPanel";
 import { EmptyState } from "@/components/fact-tables/EmptyState";
-import { api, type CandidateResponse } from "@/lib/api";
+import { api, type CandidateResponse, type SwarmRunSummary } from "@/lib/api";
+import { getApiAuthKey } from "@/lib/apiAuth";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { FlaskConical, Play, RefreshCw, X } from "lucide-react";
+import { Clock, FlaskConical, Play, RefreshCw, RotateCw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -50,9 +51,15 @@ export function CandidatesTab({ targetType }: { targetType: "trend" | "industry"
   // Scan log dialog
   const [logOpen, setLogOpen] = useState(false);
   const [logRunId, setLogRunId] = useState<string | null>(null);
-  const [logs, setLogs] = useState<{ time: string; type: string; text: string }[]>([]);
+  const [logTitle, setLogTitle] = useState("");
+  const [logs, setLogs] = useState<{ time: string; type: string; text: string; iter?: number }[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
+
+  // History dialog
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyRuns, setHistoryRuns] = useState<SwarmRunSummary[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const SCAN_TYPE: Record<string, "trends" | "industries" | "stocks"> = {
     trend: "trends",
@@ -83,39 +90,148 @@ export function CandidatesTab({ targetType }: { targetType: "trend" | "industry"
     esRef.current = null;
     setLogOpen(false);
     setLogRunId(null);
+    setLogTitle("");
   }, []);
 
-  const connectRunLog = useCallback((runId: string) => {
+  const toBeijingTime = (ts?: string) => {
+    if (!ts) return new Date().toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
+    return new Date(ts).toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
+  };
+
+  const connectRunLog = useCallback((runId: string, title?: string) => {
     esRef.current?.close();
     setLogs([]);
     setLogRunId(runId);
+    setLogTitle(title || "");
     setLogOpen(true);
 
-    const token = localStorage.getItem("api_auth_key") || "";
+    const token = getApiAuthKey();
     const url = `/swarm/runs/${runId}/events?token=${encodeURIComponent(token)}`;
     const source = new EventSource(url);
     esRef.current = source;
 
-    const append = (type: string, data: string) => {
-      const time = new Date().toLocaleTimeString();
-      setLogs((prev) => [...prev, { time, type, text: data }]);
+    const append = (type: string, data: string, iter?: number) => {
+      const time = toBeijingTime();
+      setLogs((prev) => {
+        // Merge consecutive worker_text chunks with the same iteration
+        if (type === "输出") {
+          const last = prev[prev.length - 1];
+          if (last && last.type === "输出" && last.iter === iter) {
+            return prev.map((e, i) =>
+              i === prev.length - 1 ? { ...e, text: e.text + data } : e
+            );
+          }
+        }
+        return [...prev, { time, type, text: data, iter }];
+      });
     };
 
-    source.addEventListener("text_delta", (e) => {
-      try { const d = JSON.parse(e.data); append("输出", d.text || d.delta || ""); } catch { append("输出", e.data); }
-    });
-    source.addEventListener("tool_call", (e) => {
-      try { const d = JSON.parse(e.data); append("工具", `调用 ${d.name || d.tool || ""}(${(d.arguments || d.args || "").slice(0, 120)})`); } catch { append("工具", e.data); }
-    });
-    source.addEventListener("tool_result", (e) => {
-      try { const d = JSON.parse(e.data); append("结果", (d.output || d.result || "").slice(0, 200)); } catch { append("结果", e.data); }
-    });
-    source.addEventListener("attempt.completed", (e) => {
-      try { const d = JSON.parse(e.data); append("完成", d.agent_id ? `Agent ${d.agent_id} 完成` : "步骤完成"); } catch { append("完成", e.data); }
-    });
-    source.addEventListener("attempt.failed", (e) => {
-      try { const d = JSON.parse(e.data); append("失败", d.error || "步骤失败"); } catch { append("失败", e.data); }
-    });
+    // Parse SwarmEvent JSON payload → { type, agent_id, task_id, data, timestamp }
+    const parseSwarmEvent = (raw: string): Record<string, unknown> => {
+      try { return JSON.parse(raw); } catch { return { type: "unknown", data: { raw } }; }
+    };
+
+    const handleEvent = (evt: Record<string, unknown>) => {
+      const etype = (evt.type as string) || "unknown";
+      const agent = (evt.agent_id as string) || "";
+      const data = (evt.data || {}) as Record<string, unknown>;
+
+      switch (etype) {
+        case "run_started":
+          append("启动", "扫描运行已开始");
+          break;
+        case "layer_started": {
+          const layer = data.layer as number;
+          const tasks = (data.tasks as string[])?.join(", ") || "";
+          append("层级", `第 ${layer} 层开始 (${tasks})`);
+          break;
+        }
+        case "task_started":
+          append("任务", `开始执行 (Agent: ${agent})`);
+          break;
+        case "task_retry": {
+          const attempt = data.attempt as number;
+          const maxRetries = data.max_retries as number;
+          const prevErr = (data.previous_error as string)?.slice(0, 100) || "";
+          append("重试", `第 ${attempt}/${maxRetries + 1} 次${prevErr ? ` (原因: ${prevErr})` : ""}`);
+          break;
+        }
+        case "worker_started":
+          append("Agent", `${agent} 开始工作`);
+          break;
+        case "worker_text": {
+          const content = (data.content as string) || "";
+          const iter = data.iteration as number;
+          append("输出", content, iter);
+          break;
+        }
+        case "tool_call": {
+          const tool = (data.tool as string) || "unknown";
+          const iter = data.iteration as number;
+          append("工具", `调用 ${tool}`, iter);
+          break;
+        }
+        case "tool_result": {
+          const tool = (data.tool as string) || "unknown";
+          const elapsed = data.elapsed_ms as number;
+          append("结果", `${tool} 完成 (${elapsed}ms)`);
+          break;
+        }
+        case "worker_completed": {
+          const iterations = data.iterations as number;
+          append("Agent", `${agent} 完成 (${iterations} 轮)`);
+          break;
+        }
+        case "task_completed": {
+          const summary = (data.summary as string)?.slice(0, 200) || "";
+          append("完成", `任务完成${summary ? ` — ${summary}` : ""}`);
+          break;
+        }
+        case "worker_failed":
+        case "task_failed": {
+          const err = (data.error as string)?.slice(0, 200) || "未知错误";
+          append("失败", `${agent || "任务"} 失败: ${err}`);
+          break;
+        }
+        case "worker_timeout": {
+          const elapsed = data.elapsed as number;
+          append("超时", `${agent} 超时 (${elapsed}s)`);
+          break;
+        }
+        case "worker_iteration_limit":
+          append("限制", `${agent} 达到迭代上限`);
+          break;
+        case "run_completed": {
+          const status = (data.status as string) || "completed";
+          append("完成", `扫描完成 (${status})`);
+          break;
+        }
+        case "run_error": {
+          const err = (data.error as string)?.slice(0, 200) || "未知错误";
+          append("错误", `运行异常: ${err}`);
+          break;
+        }
+        default:
+          append("事件", `${etype}${agent ? ` (${agent})` : ""}`);
+      }
+    };
+
+    // Register listeners for all known swarm event types
+    const knownTypes = [
+      "run_started", "layer_started",
+      "task_started", "task_retry", "task_completed", "task_failed",
+      "worker_started", "worker_text", "worker_completed",
+      "worker_failed", "worker_timeout", "worker_iteration_limit",
+      "tool_call", "tool_result",
+      "run_completed", "run_error",
+    ];
+
+    for (const etype of knownTypes) {
+      source.addEventListener(etype, (e) => {
+        handleEvent(parseSwarmEvent(e.data));
+      });
+    }
+
     source.addEventListener("done", () => {
       append("结束", "运行完成");
       source.close();
@@ -132,13 +248,39 @@ export function CandidatesTab({ targetType }: { targetType: "trend" | "industry"
     setScanning(true);
     try {
       const result = await api.triggerScan(SCAN_TYPE[targetType]);
-      if (result.run_id) connectRunLog(result.run_id);
+      if (result.run_id) connectRunLog(result.run_id, `${TYPE_LABELS[targetType]}扫描`);
       setTimeout(fetchCandidates, 8000);
     } catch {
       toast.error("触发扫描失败");
     } finally {
       setScanning(false);
     }
+  };
+
+  const SCAN_PRESET_MAP: Record<string, string> = {
+    trend: "scan_trends",
+    industry: "scan_industries",
+    stock: "scan_stocks",
+  };
+
+  const fetchHistory = async () => {
+    setHistoryLoading(true);
+    setHistoryOpen(true);
+    try {
+      const runs = await api.listSwarmRuns();
+      const targetPreset = SCAN_PRESET_MAP[targetType];
+      setHistoryRuns(runs.filter((r) => r.preset_name === targetPreset));
+    } catch {
+      toast.error("加载历史失败");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const SCAN_PRESET_LABELS: Record<string, string> = {
+    scan_trends: "趋势扫描",
+    scan_industries: "行业扫描",
+    scan_stocks: "股票扫描",
   };
 
   const filtered = useMemo(() => {
@@ -215,6 +357,12 @@ export function CandidatesTab({ targetType }: { targetType: "trend" | "industry"
         >
           <RefreshCw className={`h-3 w-3 ${scanning ? "animate-spin" : ""}`} /> {scanning ? "扫描中..." : "扫描"}
         </button>
+        <button
+          onClick={fetchHistory}
+          className="inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted"
+        >
+          <Clock className="h-3 w-3" /> 历史
+        </button>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
@@ -246,25 +394,60 @@ export function CandidatesTab({ targetType }: { targetType: "trend" | "industry"
               selectedId={selectedId}
               onSelect={setSelectedId}
               getId={(c) => c.id}
-              renderRow={(c) => (
-                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(c.id)}
-                      onChange={(e) => { e.stopPropagation(); toggleSelect(c.id); }}
-                      className="h-3 w-3 shrink-0 accent-primary"
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                    <StatusDot status={c.status} />
-                    <span className="min-w-0 flex-1 truncate text-sm">{c.name}</span>
-                    <ConfidenceDot value={c.initial_score} />
+              renderRow={(c) => {
+                const resultText = c.conclusion || c.report || "";
+                return (
+                  <div className="flex flex-col gap-0.5 py-0.5">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(c.id)}
+                        onChange={(e) => { e.stopPropagation(); toggleSelect(c.id); }}
+                        className="h-3 w-3 shrink-0 accent-primary"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <StatusDot status={c.status} />
+                      <span className={`inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium leading-tight ${
+                        c.status === "pending" ? "bg-muted text-muted-foreground" :
+                        c.status === "researching" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" :
+                        c.status === "proposed" ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" :
+                        c.status === "passed" ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300" :
+                        "bg-muted text-muted-foreground"
+                      }`}>
+                        {STATUS_LABELS[c.status] || c.status}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.name}</span>
+                      <span className="inline-flex items-center gap-1 shrink-0">
+                        <span className={`inline-block h-2 w-2 rounded-full ${
+                          c.initial_score <= 3 ? "bg-red-500" :
+                          c.initial_score <= 6 ? "bg-yellow-500" :
+                          "bg-green-500"
+                        }`} />
+                        <span className="text-xs tabular-nums text-muted-foreground">{c.initial_score}/10</span>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 pl-[52px] text-[10px] text-muted-foreground">
+                      {c.code && <span className="font-mono">{c.code}</span>}
+                      {c.code && <span>·</span>}
+                      <span>{c.created_at?.slice(0, 10) || ""}</span>
+                    </div>
+                    {c.status === "researching" ? (
+                      <div className="pl-[52px] flex items-center gap-1.5 text-[10px] leading-tight text-blue-500">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                        <span>研究进行中...</span>
+                        {c.research_run_id && (
+                          <span className="text-muted-foreground/50 font-mono">({c.research_run_id.slice(0, 12)}...)</span>
+                        )}
+                      </div>
+                    ) : resultText && c.status !== "pending" ? (
+                      <div className="pl-[52px] text-[10px] leading-tight text-muted-foreground/70 line-clamp-1">
+                        {resultText.slice(0, 90).replace(/\n/g, " ").trim()}
+                        {resultText.length > 90 ? "..." : ""}
+                      </div>
+                    ) : null}
                   </div>
-                  <span className="pl-7 text-[10px] text-muted-foreground">
-                    {c.code ? `${c.code} · ` : ""}{c.created_at?.slice(0, 10) || ""}
-                  </span>
-                </div>
-              )}
+                );
+              }}
               actions={() => null}
             />
           )}
@@ -287,13 +470,29 @@ export function CandidatesTab({ targetType }: { targetType: "trend" | "industry"
                     <div className="flex shrink-0 items-center gap-2">
                       <StatusDot status={selected.status} />
                       <span className="text-xs text-muted-foreground">{STATUS_LABELS[selected.status] || selected.status}</span>
-                      {selected.status === "pending" && (
+                      {selected.research_run_id && (
+                        <button
+                          onClick={() => connectRunLog(selected.research_run_id!, `${selected.name} 研究日志`)}
+                          className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] text-muted-foreground hover:bg-muted"
+                        >
+                          <Clock className="h-3 w-3" /> 研究日志
+                        </button>
+                      )}
+                      {selected.status === "pending" ? (
                         <button
                           onClick={() => handleResearchOne(selected.id)}
                           disabled={researching}
                           className="ml-1 inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
                         >
                           <Play className="h-3 w-3" /> {researching ? "启动中..." : "开始研究"}
+                        </button>
+                      ) : selected.status !== "researching" && (
+                        <button
+                          onClick={() => handleResearchOne(selected.id)}
+                          disabled={researching}
+                          className="ml-1 inline-flex items-center gap-1 rounded-md border border-primary/50 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+                        >
+                          <RotateCw className={`h-3 w-3 ${researching ? "animate-spin" : ""}`} /> {researching ? "启动中..." : "重新研究"}
                         </button>
                       )}
                     </div>
@@ -339,11 +538,24 @@ export function CandidatesTab({ targetType }: { targetType: "trend" | "industry"
                     <div className="rounded-lg border p-3">
                       <p className="mb-2 text-xs font-semibold text-muted-foreground">补充报告 ({extras.length})</p>
                       <div className="space-y-3">
-                        {extras.map((r, i) => (
-                          <div key={i} className="rounded-md bg-muted/30 p-3">
-                            <MarkdownBlock content={typeof r === "string" ? r : JSON.stringify(r, null, 2)} />
-                          </div>
-                        ))}
+                        {extras.map((r, i) => {
+                          if (typeof r === "string") {
+                            return <div key={i} className="rounded-md bg-muted/30 p-3"><MarkdownBlock content={r} /></div>;
+                          }
+                          const agentId = (r as Record<string, unknown>).agent_id as string | undefined;
+                          const title = (r as Record<string, unknown>).title as string | undefined;
+                          const content = (r as Record<string, unknown>).content as string | undefined;
+                          if (!content) {
+                            return <div key={i} className="rounded-md bg-muted/30 p-3"><MarkdownBlock content={JSON.stringify(r, null, 2)} /></div>;
+                          }
+                          return (
+                            <div key={i} className="rounded-md bg-muted/30 p-3">
+                              {title && <p className="mb-1 text-sm font-semibold">{title}</p>}
+                              {agentId && <p className="mb-2 text-[10px] text-muted-foreground/60">{agentId}</p>}
+                              <MarkdownBlock content={content} />
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -365,12 +577,63 @@ export function CandidatesTab({ targetType }: { targetType: "trend" | "industry"
         </div>
       </div>
 
+      {/* History Dialog */}
+      {historyOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="flex max-h-[80vh] w-[600px] flex-col rounded-lg border bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h3 className="text-sm font-semibold">扫描历史记录</h3>
+              <button onClick={() => setHistoryOpen(false)} className="rounded p-1 text-muted-foreground hover:bg-muted">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto">
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">加载中...</div>
+              ) : historyRuns.length === 0 ? (
+                <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">暂无扫描记录</div>
+              ) : (
+                <div className="divide-y">
+                  {historyRuns.map((run) => (
+                    <button
+                      key={run.id}
+                      onClick={() => {
+                        setHistoryOpen(false);
+                        connectRunLog(run.id, SCAN_PRESET_LABELS[run.preset_name] || run.preset_name);
+                      }}
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/50 transition-colors"
+                    >
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${
+                        run.status === "completed" ? "bg-green-500" :
+                        run.status === "failed" ? "bg-destructive" :
+                        run.status === "running" ? "bg-blue-500 animate-pulse" :
+                        "bg-zinc-400"
+                      }`} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm">{SCAN_PRESET_LABELS[run.preset_name] || run.preset_name}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {run.created_at?.slice(0, 19).replace("T", " ") || ""} · {run.completed_count}/{run.task_count} 任务
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">{run.status}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="border-t px-4 py-2 text-[10px] text-muted-foreground">
+              {historyRuns.length} 条记录 · 点击查看事件流
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Scan Log Dialog */}
       {logOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="flex max-h-[80vh] w-[700px] flex-col rounded-lg border bg-card shadow-xl">
             <div className="flex items-center justify-between border-b px-4 py-3">
-              <h3 className="text-sm font-semibold">扫描运行日志 {logRunId ? `(${logRunId.slice(0, 16)}...)` : ""}</h3>
+              <h3 className="text-sm font-semibold">{logTitle || "运行日志"} {logRunId ? `(${logRunId.slice(0, 16)}...)` : ""}</h3>
               <button onClick={closeLog} className="rounded p-1 text-muted-foreground hover:bg-muted">
                 <X className="h-4 w-4" />
               </button>
@@ -382,7 +645,7 @@ export function CandidatesTab({ targetType }: { targetType: "trend" | "industry"
                 logs.map((l, i) => (
                   <div key={i} className="flex gap-2 py-0.5">
                     <span className="shrink-0 text-zinc-500">{l.time}</span>
-                    <span className={`shrink-0 w-10 ${LOG_COLORS[l.type] || "text-zinc-400"}`}>[{l.type}]</span>
+                    <span className={`shrink-0 ${LOG_COLORS[l.type] || "text-zinc-400"}`}>[{l.type}]<span className="ml-1 text-zinc-500">{l.iter !== undefined && (i === 0 || logs[i-1].iter !== l.iter) ? "#" + l.iter : ""}</span></span>
                     <span className="whitespace-pre-wrap text-zinc-300">{l.text}</span>
                   </div>
                 ))

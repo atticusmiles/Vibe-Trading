@@ -12,6 +12,7 @@ File-system-based persistence for SwarmRun. Directory structure:
 from __future__ import annotations
 
 import json
+import time
 import threading
 from pathlib import Path
 
@@ -129,6 +130,8 @@ class SwarmStore:
     def append_event(self, run_id: str, event: SwarmEvent) -> None:
         """Append an event to events.jsonl.
 
+        Retries on Windows lock contention.
+
         Args:
             run_id: Run identifier.
             event: Event to append.
@@ -140,9 +143,17 @@ class SwarmStore:
         if not rd.exists():
             raise FileNotFoundError(f"Run directory not found: {rd}")
         events_file = rd / "events.jsonl"
+        line = event.model_dump_json() + "\n"
         with self._write_lock:
-            with events_file.open("a", encoding="utf-8") as f:
-                f.write(event.model_dump_json() + "\n")
+            for attempt in range(5):
+                try:
+                    with events_file.open("a", encoding="utf-8") as f:
+                        f.write(line)
+                    return
+                except OSError:
+                    if attempt >= 4:
+                        raise
+                    time.sleep(0.1 * (2 ** attempt))
 
     def read_events(
         self, run_id: str, after_index: int = 0
@@ -171,6 +182,8 @@ class SwarmStore:
     def _atomic_write(self, path: Path, content: str) -> None:
         """Atomically write a file: write to .tmp then rename.
 
+        Retries with backoff on Windows if the destination is temporarily locked.
+
         Args:
             path: Target file path.
             content: File content.
@@ -178,4 +191,11 @@ class SwarmStore:
         tmp_path = path.with_suffix(".tmp")
         with self._write_lock:
             tmp_path.write_text(content, encoding="utf-8")
-            tmp_path.replace(path)
+            for attempt in range(5):
+                try:
+                    tmp_path.replace(path)
+                    return
+                except OSError:
+                    if attempt >= 4:
+                        raise
+                    time.sleep(0.1 * (2 ** attempt))
